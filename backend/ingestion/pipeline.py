@@ -34,7 +34,7 @@ from backend.ingestion.pandoc_ast import (
     inject_table_into_ast,
     inject_caption_into_ast,
 )
-from backend.ingestion.vlm_processor import VLMProcessor
+from backend.ingestion.vlm_processor import get_image_processor
 from backend.ingestion.markdown_post import post_process
 from backend.core.vault import write_document
 
@@ -47,7 +47,7 @@ class IngestionPipeline:
     SUPPORTED_EXTENSIONS = {".pdf", ".hwp", ".hwpx", ".pptx", ".docx", ".doc"}
 
     def __init__(self) -> None:
-        self.vlm = VLMProcessor(model=settings.vlm_model)
+        self.vlm = get_image_processor()
         self._pdf_converter = PDFConverter()
         self._hwp_converter = HWPConverter()
         self._office_converter = OfficeConverter()
