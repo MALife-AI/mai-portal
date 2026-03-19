@@ -111,6 +111,15 @@ export const vaultApi = {
       method: 'DELETE',
       body: JSON.stringify({ path }),
     }),
+
+  bulkDelete: (paths: string[]) =>
+    request<{ status: string; deleted: string[]; not_found: string[]; denied: string[] }>(
+      '/api/v1/vault/doc/bulk-delete',
+      {
+        method: 'POST',
+        body: JSON.stringify({ paths }),
+      },
+    ),
 }
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────
