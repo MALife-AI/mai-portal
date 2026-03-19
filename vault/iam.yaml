@@ -1,0 +1,60 @@
+# ──────────────────────────────────────
+# MaLife Lake IAM Configuration
+# Configuration as Code (RBAC + Ownership)
+# ──────────────────────────────────────
+
+roles:
+  admin:
+    description: "시스템 관리자"
+    allowed_paths:
+      read:
+        - "/Public/**"
+        - "/Private/**"
+        - "/Skills/**"
+      write:
+        - "/Public/**"
+        - "/Private/**"
+        - "/Skills/**"
+
+  underwriter:
+    description: "언더라이터 (심사역)"
+    allowed_paths:
+      read:
+        - "/Public/**"
+        - "/Public/underwriting/**"
+        - "/Skills/**"
+      write:
+        - "/Public/underwriting/**"
+
+  analyst:
+    description: "데이터 분석가"
+    allowed_paths:
+      read:
+        - "/Public/**"
+        - "/Skills/**"
+      write:
+        - "/Public/reports/**"
+
+  viewer:
+    description: "일반 조회자"
+    allowed_paths:
+      read:
+        - "/Public/**"
+      write: []
+
+users:
+  - user_id: admin01
+    roles: [admin]
+    display_name: "시스템 관리자"
+
+  - user_id: uw001
+    roles: [underwriter]
+    display_name: "김심사"
+
+  - user_id: analyst01
+    roles: [analyst]
+    display_name: "이분석"
+
+  - user_id: user01
+    roles: [viewer]
+    display_name: "박조회"
