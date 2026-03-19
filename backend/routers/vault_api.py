@@ -78,6 +78,49 @@ async def delete_document(
     return {"status": "deleted", "path": body.path}
 
 
+@router.post("/doc/bulk-delete")
+async def bulk_delete_documents(
+    body: BulkDeleteRequest,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """파일 단체 삭제 (멀티 선택)."""
+    if not body.paths:
+        raise HTTPException(status_code=400, detail="No paths provided")
+
+    deleted: list[str] = []
+    not_found: list[str] = []
+    denied: list[str] = []
+
+    for rel_path in body.paths:
+        try:
+            enforce_workspace_acl(iam, user_id, rel_path, mode="write")
+        except HTTPException:
+            denied.append(rel_path)
+            continue
+
+        full = settings.vault_root / rel_path
+        if not full.exists() or not full.is_file():
+            not_found.append(rel_path)
+            continue
+
+        full.unlink()
+        deleted.append(rel_path)
+
+    if deleted:
+        await git_auto_commit(
+            settings.vault_root,
+            f"[vault] bulk delete {len(deleted)} files by {user_id}",
+        )
+
+    return {
+        "status": "completed",
+        "deleted": deleted,
+        "not_found": not_found,
+        "denied": denied,
+    }
+
+
 @router.delete("/folder")
 async def delete_folder(
     body: DeleteRequest,
