@@ -30,35 +30,68 @@ class LocalTableExtractor:
         return await asyncio.to_thread(self._extract, image_path)
 
     def _extract(self, image_path: Path) -> dict[str, Any]:
-        from img2table.document import Image as Img2TableImage
-        from img2table.ocr import TesseractOCR
-
-        ocr = TesseractOCR(lang=self._langs)
-        doc = Img2TableImage(src=str(image_path))
-        tables = doc.extract_tables(ocr=ocr, borderless_tables=True)
-
-        if not tables:
+        # 1) 표 감지 시도
+        table_md = self._try_table(image_path)
+        if table_md:
             return {
-                "type": "diagram",
-                "markdown_table": "",
-                "caption": image_path.stem,
+                "type": "table",
+                "markdown_table": table_md,
+                "caption": "",
             }
 
-        # 가장 큰 테이블 사용 (셀 수 기준)
-        best = max(tables, key=lambda t: len(t.content.values()))
-        df = best.df
-        if df is None or df.empty:
+        # 2) 범용 OCR 텍스트 추출
+        text = self._try_ocr(image_path)
+        if text:
             return {
-                "type": "diagram",
+                "type": "text",
                 "markdown_table": "",
-                "caption": image_path.stem,
+                "caption": text,
             }
 
+        # 3) 둘 다 실패
         return {
-            "type": "table",
-            "markdown_table": self._df_to_gfm(df),
-            "caption": "",
+            "type": "diagram",
+            "markdown_table": "",
+            "caption": image_path.stem,
         }
+
+    def _try_table(self, image_path: Path) -> str:
+        """img2table로 표 감지 및 GFM 변환. 실패 시 빈 문자열."""
+        try:
+            from img2table.document import Image as Img2TableImage
+            from img2table.ocr import TesseractOCR
+
+            ocr = TesseractOCR(lang=self._langs)
+            doc = Img2TableImage(src=str(image_path))
+            tables = doc.extract_tables(ocr=ocr, borderless_tables=True)
+
+            if not tables:
+                return ""
+
+            best = max(tables, key=lambda t: len(t.content.values()))
+            df = best.df
+            if df is None or df.empty:
+                return ""
+
+            return self._df_to_gfm(df)
+        except Exception as exc:
+            logger.debug("img2table failed for %s: %s", image_path.name, exc)
+            return ""
+
+    def _try_ocr(self, image_path: Path) -> str:
+        """Tesseract OCR로 텍스트 추출. 실패 시 빈 문자열."""
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["tesseract", str(image_path), "stdout", "-l", self._langs, "--psm", "6"],
+                capture_output=True, text=True, timeout=30,
+            )
+            text = result.stdout.strip()
+            return text if len(text) > 5 else ""
+        except Exception as exc:
+            logger.debug("Tesseract OCR failed for %s: %s", image_path.name, exc)
+            return ""
 
     @staticmethod
     def _df_to_gfm(df: Any) -> str:
