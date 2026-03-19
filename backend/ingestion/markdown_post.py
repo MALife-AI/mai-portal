@@ -141,3 +141,75 @@ def _normalize_tables(md: str) -> str:
 def _collapse_blank_lines(md: str) -> str:
     """연속된 빈 줄을 2줄로 제한."""
     return re.sub(r"\n{3,}", "\n\n", md)
+
+
+# ── pdftotext -layout 텍스트 → GFM 테이블 변환 ─────────────────────────────
+
+def convert_layout_tables(text: str) -> str:
+    """pdftotext -layout 출력에서 공백 정렬된 표를 GFM 마크다운 테이블로 변환.
+
+    공백 2개 이상으로 구분된 열이 3행 이상 연속되면 테이블로 인식한다.
+    """
+    lines = text.split("\n")
+    result: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        # 테이블 후보 행 수집: 공백 2+ 로 구분된 2+ 열이 연속 3행 이상
+        table_lines: list[str] = []
+        j = i
+        while j < len(lines):
+            cols = _split_layout_columns(lines[j])
+            if len(cols) >= 2:
+                table_lines.append(lines[j])
+                j += 1
+            else:
+                break
+
+        if len(table_lines) >= 3:
+            gfm = _layout_lines_to_gfm(table_lines)
+            if gfm:
+                result.append(gfm)
+                i = j
+                continue
+
+        result.append(lines[i])
+        i += 1
+
+    return "\n".join(result)
+
+
+def _split_layout_columns(line: str) -> list[str]:
+    """공백 2개 이상을 구분자로 열을 분리."""
+    stripped = line.strip()
+    if not stripped:
+        return []
+    parts = re.split(r" {2,}", stripped)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _layout_lines_to_gfm(lines: list[str]) -> str:
+    """공백 정렬된 행 목록을 GFM 테이블 문자열로 변환."""
+    rows = [_split_layout_columns(line) for line in lines]
+    if not rows:
+        return ""
+
+    max_cols = max(len(r) for r in rows)
+    # 열 수가 너무 불균일하면 테이블이 아님
+    col_counts = [len(r) for r in rows]
+    mode_count = max(set(col_counts), key=col_counts.count)
+    matching = sum(1 for c in col_counts if c == mode_count)
+    if matching < len(rows) * 0.6:
+        return ""
+
+    for r in rows:
+        while len(r) < max_cols:
+            r.append("")
+
+    gfm_lines: list[str] = []
+    for idx, row in enumerate(rows):
+        gfm_lines.append("| " + " | ".join(row) + " |")
+        if idx == 0:
+            gfm_lines.append("| " + " | ".join("---" for _ in row) + " |")
+
+    return "\n".join(gfm_lines)

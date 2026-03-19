@@ -274,6 +274,8 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
             )
             text = result.stdout.strip()
             if len(text) > 50:  # 유의미한 텍스트가 있으면 성공
+                from backend.ingestion.markdown_post import convert_layout_tables
+                text = convert_layout_tables(text)
                 return f"# {file_path.stem}\n\n{text}"
         except Exception:
             pass
