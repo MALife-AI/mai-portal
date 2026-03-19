@@ -1,0 +1,40 @@
+[project]
+name = "malife-lake"
+version = "0.1.0"
+description = "Secure Agentic RAG - Git-backed Markdown Data Lake"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "chromadb>=0.6.0",
+    "pyyaml>=6.0",
+    "python-frontmatter>=1.1.0",
+    "gitpython>=3.1.0",
+    "python-multipart>=0.0.18",
+    "httpx>=0.28.0",
+    "marker-pdf>=1.0.0",
+    "aiofiles>=24.1.0",
+    "networkx>=3.0",
+    "rapidfuzz>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
