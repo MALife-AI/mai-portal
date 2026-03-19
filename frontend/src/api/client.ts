@@ -391,7 +391,7 @@ export const graphApi = {
   getCommunities: () => request<GraphCommunity[]>('/api/v1/graph/communities'),
 
   buildGraph: () =>
-    request<{ status: string; processed: number; entities_added: number; relationships_added: number }>(
+    request<{ status: string; files: number; entities: number; relationships: number; communities: number }>(
       '/api/v1/graph/build', { method: 'POST', body: JSON.stringify({}) }
     ),
 

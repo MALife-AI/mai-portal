@@ -547,7 +547,7 @@ export default function KnowledgeGraph() {
       const result = await graphApi.buildGraph()
       toast.success(
         '그래프 빌드 완료',
-        `엔티티 ${result.entities_added}개, 관계 ${result.relationships_added}개 추가됨`,
+        `엔티티 ${result.entities}개, 관계 ${result.relationships}개 추가됨`,
       )
       await fetchData()
     } catch (err) {
