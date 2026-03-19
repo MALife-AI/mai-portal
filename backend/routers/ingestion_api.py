@@ -1,0 +1,311 @@
+"""Document Ingestion API."""
+from __future__ import annotations
+
+import asyncio
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from starlette.responses import StreamingResponse
+
+from backend.dependencies import get_current_user
+from backend.config import settings
+from backend.ingestion.pipeline import IngestionPipeline
+
+router = APIRouter()
+_pipeline = IngestionPipeline()
+
+
+@router.post("/upload")
+async def upload_and_ingest(
+    file: UploadFile = File(...),
+    dest: str = Form(""),
+    user_id: str = Depends(get_current_user),
+):
+    with tempfile.NamedTemporaryFile(
+        suffix=Path(file.filename or "doc").suffix,
+        delete=False,
+    ) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    rel_path = await _pipeline.ingest(tmp_path, user_id=user_id, dest_rel=dest or None)
+    tmp_path.unlink(missing_ok=True)
+
+    return {"status": "ingested", "path": rel_path}
+
+
+@router.post("/upload-batch")
+async def upload_batch(
+    files: list[UploadFile] = File(...),
+    dest: str = Form(""),
+    relative_paths: str = Form(""),
+    user_id: str = Depends(get_current_user),
+):
+    """폴더 업로드: 여러 파일을 상대 경로 구조를 유지하며 일괄 업로드."""
+    # 숨김파일/시스템파일 무시 패턴
+    IGNORE_NAMES = {".DS_Store", ".ds_store", "Thumbs.db", "desktop.ini", ".gitkeep"}
+    IGNORE_PREFIXES = (".", "__MACOSX")
+
+    rel_path_list = [p.strip() for p in relative_paths.split("\n") if p.strip()] if relative_paths else []
+
+    results: list[dict[str, Any]] = []
+    for i, file in enumerate(files):
+        filename = file.filename or ""
+
+        # 숨김파일 필터
+        basename = Path(filename).name
+        if basename in IGNORE_NAMES or any(basename.startswith(p) for p in IGNORE_PREFIXES):
+            results.append({"file": filename, "status": "skipped", "error": "Hidden/system file"})
+            continue
+
+        # 상대경로 내 숨김 디렉토리 필터 (__MACOSX/..., .hidden/...)
+        rel = rel_path_list[i] if i < len(rel_path_list) else ""
+        if any(part.startswith(".") or part.startswith("__") for part in Path(rel).parts if part != "."):
+            results.append({"file": filename, "status": "skipped", "error": "Hidden directory"})
+            continue
+        # 폴더 구조 유지: relative_paths가 제공되면 해당 경로 사용
+        if i < len(rel_path_list) and rel_path_list[i]:
+            file_dest = f"{dest.rstrip('/')}/{rel_path_list[i]}" if dest else rel_path_list[i]
+        else:
+            file_dest = f"{dest.rstrip('/')}/{file.filename}" if dest else None
+
+        ext = Path(file.filename or "doc").suffix.lower()
+
+        # 마크다운/텍스트는 파이프라인 없이 직접 저장
+        if ext in {".md", ".txt", ".yaml", ".yml", ".json"}:
+            from backend.core.vault import write_document
+
+            content_bytes = await file.read()
+            body = content_bytes.decode("utf-8", errors="replace")
+            target = file_dest or f"Public/{file.filename}"
+            await write_document(target, body, user_id=user_id)
+            results.append({"file": file.filename, "status": "saved", "path": target})
+            continue
+
+        # 변환 대상 문서는 파이프라인 처리
+        if ext in _pipeline.SUPPORTED_EXTENSIONS:
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                content_bytes = await file.read()
+                tmp.write(content_bytes)
+                tmp_path = Path(tmp.name)
+
+            try:
+                # dest_rel에서 확장자를 .md로 변경
+                md_dest = str(Path(file_dest).with_suffix(".md")) if file_dest else None
+                rel_path = await _pipeline.ingest(tmp_path, user_id=user_id, dest_rel=md_dest)
+                results.append({"file": file.filename, "status": "ingested", "path": rel_path})
+            except Exception as e:
+                results.append({"file": file.filename, "status": "error", "error": str(e)})
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            continue
+
+        # 미지원 포맷
+        results.append({"file": file.filename, "status": "skipped", "error": f"Unsupported: {ext}"})
+
+    success = sum(1 for r in results if r["status"] in ("ingested", "saved"))
+    return {
+        "status": "completed",
+        "total": len(files),
+        "success": success,
+        "errors": len(files) - success,
+        "results": results,
+    }
+
+
+@router.post("/reprocess")
+async def reprocess_vault_md(
+    user_id: str = Depends(get_current_user),
+):
+    """기존 vault 마크다운 파일들의 HTML 태그를 재처리 (post-process)."""
+    import aiofiles
+    from backend.config import settings
+    from backend.ingestion.markdown_post import post_process
+    from backend.core.frontmatter import parse_frontmatter, synthesize_frontmatter
+
+    vault = settings.vault_root
+    md_files = list(vault.rglob("*.md"))
+    processed = 0
+    cleaned = 0
+
+    for md_file in md_files:
+        content = md_file.read_text(encoding="utf-8")
+        meta, body = parse_frontmatter(content)
+
+        cleaned_body = post_process(body)
+        if cleaned_body.strip() != body.strip():
+            # 프론트매터 보존하며 본문만 교체
+            new_content = synthesize_frontmatter(
+                cleaned_body, user_id=meta.get("owner", user_id), extra_meta=meta,
+            )
+            async with aiofiles.open(md_file, "w", encoding="utf-8") as f:
+                await f.write(new_content)
+            cleaned += 1
+        processed += 1
+
+    return {
+        "status": "completed",
+        "processed": processed,
+        "cleaned": cleaned,
+        "unchanged": processed - cleaned,
+    }
+
+
+@router.post("/ingest-local")
+async def ingest_local_path(
+    source_dir: str = Form(...),
+    dest: str = Form("Public/"),
+    user_id: str = Depends(get_current_user),
+):
+    """로컬 디렉토리를 직접 읽어 vault로 변환. SSE로 진행률 스트리밍."""
+    source = Path(source_dir)
+    if not source.exists() or not source.is_dir():
+        return {"error": f"Directory not found: {source_dir}"}
+
+    SUPPORTED = {".pdf", ".docx", ".pptx", ".hwp", ".hwpx", ".doc"}
+    TEXT_EXTS = {".md", ".txt", ".yaml", ".yml", ".json"}
+    IGNORE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
+
+    all_files = [
+        f for f in source.rglob("*")
+        if f.is_file()
+        and f.name not in IGNORE_NAMES
+        and not f.name.startswith(".")
+        and not any(p.startswith(".") or p.startswith("__") for p in f.relative_to(source).parts[:-1])
+    ]
+
+    total = len(all_files)
+
+    async def event_stream():
+        from backend.core.vault import write_document
+
+        processed = 0
+        success = 0
+        errors = 0
+        skipped = 0
+
+        yield _sse({"type": "start", "total": total, "source": source_dir})
+
+        for file_path in all_files:
+            rel = file_path.relative_to(source)
+            target_rel = f"{dest.rstrip('/')}/{rel}"
+            ext = file_path.suffix.lower()
+            processed += 1
+
+            try:
+                if ext in TEXT_EXTS:
+                    body = file_path.read_text(encoding="utf-8", errors="replace")
+                    await write_document(target_rel, body, user_id=user_id)
+                    success += 1
+                    yield _sse({"type": "progress", "file": str(rel), "status": "saved", "processed": processed, "total": total})
+
+                elif ext in SUPPORTED:
+                    md_target = str(Path(target_rel).with_suffix(".md"))
+                    try:
+                        result_path = await _pipeline.ingest(file_path, user_id=user_id, dest_rel=md_target)
+                        success += 1
+                        yield _sse({"type": "progress", "file": str(rel), "status": "ingested", "path": result_path, "processed": processed, "total": total})
+                    except Exception as e:
+                        # 폴백 체인: pandoc → pdftotext → OCR(pdftoppm+tesseract)
+                        fallback_text = await _fallback_convert(file_path, ext)
+                        if fallback_text:
+                            from backend.ingestion.markdown_post import post_process
+                            cleaned = post_process(fallback_text)
+                            await write_document(md_target, cleaned, user_id=user_id, extra_meta={"source_format": ext, "fallback": True})
+                            success += 1
+                            yield _sse({"type": "progress", "file": str(rel), "status": "fallback", "processed": processed, "total": total})
+                        else:
+                            errors += 1
+                            yield _sse({"type": "progress", "file": str(rel), "status": "error", "error": str(e)[:100], "processed": processed, "total": total})
+                else:
+                    skipped += 1
+                    yield _sse({"type": "progress", "file": str(rel), "status": "skipped", "processed": processed, "total": total})
+
+            except Exception as e:
+                errors += 1
+                yield _sse({"type": "progress", "file": str(rel), "status": "error", "error": str(e)[:100], "processed": processed, "total": total})
+
+            # 매 10건마다 살짝 양보
+            if processed % 10 == 0:
+                await asyncio.sleep(0)
+
+        yield _sse({"type": "done", "total": total, "success": success, "errors": errors, "skipped": skipped})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _sse(data: dict) -> str:
+    """SSE 형식으로 JSON 이벤트 생성."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _fallback_convert(file_path: Path, ext: str) -> str | None:
+    """Marker 실패 시 폴백 변환 체인: pandoc → pdftotext → OCR."""
+    import subprocess
+    import shutil
+    import tempfile
+
+    # 1단계: pandoc 직접 변환 (DOCX/PPTX에 유효)
+    if ext in {".docx", ".pptx", ".doc"}:
+        try:
+            result = subprocess.run(
+                ["pandoc", str(file_path), "-t", "gfm", "--wrap=none"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout
+        except Exception:
+            pass
+
+    # PDF 전용 폴백
+    if ext != ".pdf":
+        return None
+
+    # 2단계: pdftotext (텍스트 레이어가 있는 PDF)
+    if shutil.which("pdftotext"):
+        try:
+            result = subprocess.run(
+                ["pdftotext", "-layout", str(file_path), "-"],
+                capture_output=True, text=True, timeout=30,
+            )
+            text = result.stdout.strip()
+            if len(text) > 50:  # 유의미한 텍스트가 있으면 성공
+                return f"# {file_path.stem}\n\n{text}"
+        except Exception:
+            pass
+
+    # 3단계: OCR (스캔 이미지 PDF) — pdftoppm + tesseract
+    if shutil.which("pdftoppm") and shutil.which("tesseract"):
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                # PDF → PNG (300dpi)
+                subprocess.run(
+                    ["pdftoppm", "-png", "-r", "200", str(file_path), str(tmp_path / "page")],
+                    capture_output=True, timeout=120,
+                )
+                pages = sorted(tmp_path.glob("page-*.png"))
+                if not pages:
+                    return None
+
+                all_text: list[str] = []
+                for page_img in pages:
+                    result = subprocess.run(
+                        ["tesseract", str(page_img), "stdout", "-l", "kor+eng", "--psm", "6"],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    page_text = result.stdout.strip()
+                    if page_text:
+                        all_text.append(page_text)
+
+                if all_text:
+                    combined = "\n\n---\n\n".join(all_text)
+                    return f"# {file_path.stem}\n\n{combined}"
+        except Exception:
+            pass
+
+    return None
