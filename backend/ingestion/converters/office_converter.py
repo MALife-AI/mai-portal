@@ -58,16 +58,16 @@ class OfficeConverter:
     # Public interface
     # ------------------------------------------------------------------
 
-    def convert(self, file_path: Path) -> dict[str, Any]:
+    def convert(
+        self, file_path: Path, *, media_dir: Path | None = None,
+    ) -> dict[str, Any]:
         """Convert a DOCX or PPTX file to a Pandoc AST JSON dict.
-
-        Uses ``pandoc --extract-media`` so that any embedded images are
-        written to a temporary directory whose paths appear in the AST.
-        The temp directory is cleaned up after Pandoc exits; callers that
-        need the images should use :meth:`extract_media` separately.
 
         Args:
             file_path: Absolute path to the source .docx, .doc, or .pptx.
+            media_dir: If provided, embedded images are extracted here and
+                AST image paths reference this directory so downstream VLM
+                processing can access them.
 
         Returns:
             Pandoc AST JSON dict.
@@ -86,7 +86,7 @@ class OfficeConverter:
         if not file_path.exists():
             raise OfficeConversionError(f"File not found: {file_path}")
 
-        return self._pandoc_to_ast(file_path)
+        return self._pandoc_to_ast(file_path, media_dir=media_dir)
 
     def convert_pptx_by_slide(self, file_path: Path) -> list[dict[str, Any]]:
         """Split a PPTX file into one Pandoc AST dict per slide.
@@ -191,14 +191,17 @@ class OfficeConverter:
     # Pandoc helpers
     # ------------------------------------------------------------------
 
-    def _pandoc_to_ast(self, file_path: Path) -> dict[str, Any]:
-        """Run ``pandoc <file> -t json --extract-media=<tmp>`` in a temp dir.
-
-        The ``--extract-media`` temp dir is intentionally discarded because
-        callers that need media files should call :meth:`extract_media`.
+    def _pandoc_to_ast(
+        self, file_path: Path, media_dir: Path | None = None,
+    ) -> dict[str, Any]:
+        """Run ``pandoc <file> -t json --extract-media=<dir>``.
 
         Args:
             file_path: Office document to convert.
+            media_dir: Directory to extract embedded media into. If provided,
+                images are persisted here and AST image paths point to this
+                directory. If ``None``, a temporary directory is used and
+                discarded after conversion.
 
         Returns:
             Pandoc AST JSON dict.
@@ -206,26 +209,33 @@ class OfficeConverter:
         Raises:
             OfficeConversionError: On timeout, non-zero exit, or bad JSON.
         """
+        if media_dir is not None:
+            media_dir.mkdir(parents=True, exist_ok=True)
+            return self._run_pandoc_ast(file_path, media_dir)
+
         with tempfile.TemporaryDirectory() as tmp:
-            cmd = [
-                "pandoc",
-                str(file_path),
-                "-t", "json",
-                "--extract-media=.",
-            ]
-            logger.debug("Running Pandoc: %s", " ".join(cmd))
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=tmp,
-                    timeout=self.pandoc_timeout,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise OfficeConversionError(
-                    f"Pandoc timed out after {self.pandoc_timeout}s for {file_path.name}"
-                ) from exc
+            return self._run_pandoc_ast(file_path, Path(tmp))
+
+    def _run_pandoc_ast(self, file_path: Path, cwd: Path) -> dict[str, Any]:
+        cmd = [
+            "pandoc",
+            str(file_path),
+            "-t", "json",
+            "--extract-media=.",
+        ]
+        logger.debug("Running Pandoc: %s", " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(cwd),
+                timeout=self.pandoc_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise OfficeConversionError(
+                f"Pandoc timed out after {self.pandoc_timeout}s for {file_path.name}"
+            ) from exc
 
         if result.returncode != 0:
             raise OfficeConversionError(

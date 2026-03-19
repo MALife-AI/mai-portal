@@ -69,7 +69,7 @@ class IngestionPipeline:
         assets_dir.mkdir(parents=True, exist_ok=True)
 
         # Step 1: Format → Pandoc AST JSON (IR)
-        ast_json = await self._to_pandoc_ast(file_path, ext)
+        ast_json = await self._to_pandoc_ast(file_path, ext, assets_dir)
 
         # Step 2: 이미지 추출 + VLM 분석
         ast_json = await self._process_images(ast_json, assets_dir, doc_name)
@@ -90,22 +90,28 @@ class IngestionPipeline:
         )
         return rel_path
 
-    async def _to_pandoc_ast(self, file_path: Path, ext: str) -> dict[str, Any]:
+    async def _to_pandoc_ast(
+        self, file_path: Path, ext: str, assets_dir: Path | None = None,
+    ) -> dict[str, Any]:
         """포맷별 변환기를 거쳐 Pandoc AST JSON을 반환."""
         if ext == ".pdf":
             return await self._pdf_to_ast(file_path)
         elif ext in {".hwp", ".hwpx"}:
             return await self._hwp_to_ast(file_path)
         else:
-            # DOCX, PPTX — Pandoc 직접 변환
-            return await self._pandoc_native(file_path)
+            # DOCX, PPTX — Pandoc 직접 변환 (media를 assets_dir에 추출)
+            return await self._pandoc_native(file_path, assets_dir)
 
-    async def _pandoc_native(self, file_path: Path) -> dict[str, Any]:
+    async def _pandoc_native(
+        self, file_path: Path, media_dir: Path | None = None,
+    ) -> dict[str, Any]:
         """Pandoc이 직접 지원하는 포맷 → AST JSON.
 
         Delegates to :class:`~backend.ingestion.converters.OfficeConverter`.
         """
-        return await asyncio.to_thread(self._office_converter.convert, file_path)
+        return await asyncio.to_thread(
+            self._office_converter.convert, file_path, media_dir=media_dir,
+        )
 
     async def _pdf_to_ast(self, file_path: Path) -> dict[str, Any]:
         """PDF → Marker(Layout Analysis) → Markdown → Pandoc AST.
@@ -135,9 +141,13 @@ class IngestionPipeline:
         tasks = []
         for img_info in images:
             src_path = Path(img_info["src"])
+            # 상대 경로인 경우 assets_dir 기준으로 해석 (pandoc --extract-media=. 출력)
+            if not src_path.is_absolute():
+                src_path = assets_dir / src_path
             if src_path.exists():
                 dest = assets_dir / src_path.name
-                shutil.copy2(src_path, dest)
+                if src_path != dest:
+                    shutil.copy2(src_path, dest)
                 img_info["saved_path"] = dest
                 tasks.append(self.vlm.analyze_image(dest))
 
