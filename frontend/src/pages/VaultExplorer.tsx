@@ -9,6 +9,8 @@ import {
   Edit3,
   Loader2,
   Trash2,
+  CheckSquare,
+  Square,
 } from 'lucide-react'
 import { vaultApi, type DocResponse } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
@@ -34,6 +36,12 @@ export default function VaultExplorer() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; type: 'file' | 'folder' } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // 멀티 선택 상태
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
   const fetchFiles = useCallback(async () => {
     setIsLoadingFiles(true)
@@ -151,6 +159,63 @@ tags: []
     }
   }
 
+  // 멀티 선택 관련
+  function toggleSelectMode() {
+    if (selectMode) {
+      setSelectMode(false)
+      setSelectedPaths(new Set())
+    } else {
+      setSelectMode(true)
+      setSelectedPaths(new Set())
+    }
+  }
+
+  function handleToggleSelect(path: string) {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }
+
+  function handleSelectAll() {
+    if (selectedPaths.size === files.length) {
+      setSelectedPaths(new Set())
+    } else {
+      setSelectedPaths(new Set(files))
+    }
+  }
+
+  async function confirmBulkDelete() {
+    if (selectedPaths.size === 0) return
+    setIsBulkDeleting(true)
+    try {
+      const result = await vaultApi.bulkDelete(Array.from(selectedPaths))
+      const msgs: string[] = []
+      if (result.deleted.length > 0) msgs.push(`${result.deleted.length}개 삭제`)
+      if (result.not_found.length > 0) msgs.push(`${result.not_found.length}개 미발견`)
+      if (result.denied.length > 0) msgs.push(`${result.denied.length}개 권한 없음`)
+      toast.success('단체 삭제 완료', msgs.join(', '))
+
+      if (selectedVaultPath && result.deleted.includes(selectedVaultPath)) {
+        setSelectedVaultPath('')
+        setDoc(null)
+      }
+      setSelectedPaths(new Set())
+      setSelectMode(false)
+      fetchFiles()
+    } catch (err) {
+      toast.error('단체 삭제 실패', String(err))
+    } finally {
+      setIsBulkDeleting(false)
+      setShowBulkDeleteModal(false)
+    }
+  }
+
   const pathParts = doc ? doc.path.split('/') : []
   const { frontmatter, body } = doc ? parseFrontmatter(doc.content) : { frontmatter: {}, body: '' }
 
@@ -175,6 +240,18 @@ tags: []
           </span>
           <div className="flex items-center gap-1">
             <button
+              onClick={toggleSelectMode}
+              className={cn(
+                'w-6 h-6 rounded flex items-center justify-center transition-colors',
+                selectMode
+                  ? 'text-gold-500 bg-gold-500/10'
+                  : 'text-surface-600 hover:text-gold-500 hover:bg-surface-200',
+              )}
+              title={selectMode ? '선택 모드 해제' : '멀티 선택'}
+            >
+              {selectMode ? <CheckSquare size={13} /> : <Square size={13} />}
+            </button>
+            <button
               onClick={() => setShowNewDocModal(true)}
               className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors"
               title="새 문서"
@@ -191,6 +268,37 @@ tags: []
             </button>
           </div>
         </div>
+
+        {/* Select mode toolbar */}
+        {selectMode && (
+          <div
+            className="flex items-center gap-2 px-3 py-2"
+            style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-elevated)' }}
+          >
+            <button
+              onClick={handleSelectAll}
+              className="text-2xs text-surface-700 hover:text-gold-500 transition-colors"
+            >
+              {selectedPaths.size === files.length ? '전체 해제' : '전체 선택'}
+            </button>
+            <span className="text-2xs text-surface-600 ml-auto font-mono">
+              {selectedPaths.size}개 선택
+            </span>
+            <button
+              onClick={() => selectedPaths.size > 0 && setShowBulkDeleteModal(true)}
+              disabled={selectedPaths.size === 0}
+              className={cn(
+                'flex items-center gap-1 text-2xs px-2 py-1 rounded transition-colors',
+                selectedPaths.size > 0
+                  ? 'bg-status-error/10 text-status-error hover:bg-status-error/20'
+                  : 'text-surface-500 cursor-not-allowed',
+              )}
+            >
+              <Trash2 size={11} />
+              삭제
+            </button>
+          </div>
+        )}
 
         {/* Tree */}
         <div className="flex-1 overflow-y-auto py-1">
@@ -210,6 +318,9 @@ tags: []
               }}
               onDeleteFolder={(folderPath) => requestDelete(folderPath, 'folder')}
               onDeleteFile={(filePath) => requestDelete(filePath, 'file')}
+              selectMode={selectMode}
+              selectedPaths={selectedPaths}
+              onToggleSelect={handleToggleSelect}
             />
           )}
         </div>
@@ -412,6 +523,33 @@ tags: []
           <p className="text-xs font-mono text-gold-500 p-2 rounded" style={{ background: 'var(--color-bg-elevated)' }}>
             {deleteTarget?.path}
           </p>
+        </div>
+      </Modal>
+
+      {/* Bulk Delete Confirmation Modal */}
+      <Modal
+        isOpen={showBulkDeleteModal}
+        onClose={() => setShowBulkDeleteModal(false)}
+        onConfirm={confirmBulkDelete}
+        title="단체 삭제"
+        confirmLabel={`${selectedPaths.size}개 파일 삭제`}
+        variant="danger"
+        isLoading={isBulkDeleting}
+      >
+        <div>
+          <p className="text-sm text-surface-800 mb-3">
+            선택한 <strong className="text-status-error">{selectedPaths.size}개</strong> 파일이 영구적으로 삭제됩니다.
+          </p>
+          <div
+            className="max-h-40 overflow-y-auto rounded p-2 space-y-0.5"
+            style={{ background: 'var(--color-bg-elevated)' }}
+          >
+            {Array.from(selectedPaths).sort().map((p) => (
+              <p key={p} className="text-2xs font-mono text-surface-700 truncate" title={p}>
+                {p}
+              </p>
+            ))}
+          </div>
         </div>
       </Modal>
     </div>
