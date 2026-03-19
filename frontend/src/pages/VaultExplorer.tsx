@@ -11,6 +11,7 @@ import {
   Trash2,
   CheckSquare,
   Square,
+  FolderX,
 } from 'lucide-react'
 import { vaultApi, type DocResponse } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
@@ -40,6 +41,7 @@ export default function VaultExplorer() {
   // 멀티 선택 상태
   const [selectMode, setSelectMode] = useState(false)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set())
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
@@ -164,9 +166,11 @@ tags: []
     if (selectMode) {
       setSelectMode(false)
       setSelectedPaths(new Set())
+      setSelectedFolders(new Set())
     } else {
       setSelectMode(true)
       setSelectedPaths(new Set())
+      setSelectedFolders(new Set())
     }
   }
 
@@ -182,30 +186,87 @@ tags: []
     })
   }
 
+  function handleToggleFolderSelect(folderPath: string) {
+    setSelectedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(folderPath)) {
+        next.delete(folderPath)
+      } else {
+        next.add(folderPath)
+      }
+      return next
+    })
+    // 폴더 선택 시 그 아래 개별 파일 선택 해제 (중복 방지)
+    setSelectedPaths((prev) => {
+      const next = new Set(prev)
+      for (const p of prev) {
+        if (p.startsWith(folderPath + '/')) {
+          next.delete(p)
+        }
+      }
+      return next
+    })
+  }
+
   function handleSelectAll() {
-    if (selectedPaths.size === files.length) {
+    if (selectedPaths.size === files.length && selectedFolders.size === 0) {
       setSelectedPaths(new Set())
     } else {
+      setSelectedFolders(new Set())
       setSelectedPaths(new Set(files))
     }
   }
 
+  // 선택된 폴더에 포함되지 않는 개별 파일만 계산
+  const standaloneFiles = Array.from(selectedPaths).filter(
+    (p) => !Array.from(selectedFolders).some((f) => p.startsWith(f + '/'))
+  )
+  const totalSelectCount = selectedFolders.size + standaloneFiles.length
+  const hasSelection = totalSelectCount > 0
+
   async function confirmBulkDelete() {
-    if (selectedPaths.size === 0) return
+    if (!hasSelection) return
     setIsBulkDeleting(true)
     try {
-      const result = await vaultApi.bulkDelete(Array.from(selectedPaths))
       const msgs: string[] = []
-      if (result.deleted.length > 0) msgs.push(`${result.deleted.length}개 삭제`)
-      if (result.not_found.length > 0) msgs.push(`${result.not_found.length}개 미발견`)
-      if (result.denied.length > 0) msgs.push(`${result.denied.length}개 권한 없음`)
+      let totalFilesRemoved = 0
+
+      // 1) 폴더 삭제 (하위 전체)
+      for (const folderPath of selectedFolders) {
+        try {
+          const result = await vaultApi.deleteFolder(folderPath)
+          totalFilesRemoved += result.files_removed
+        } catch (err) {
+          msgs.push(`${folderPath} 실패`)
+        }
+      }
+      if (selectedFolders.size > 0) {
+        msgs.push(`${selectedFolders.size}개 폴더 (${totalFilesRemoved}개 파일)`)
+      }
+
+      // 2) 개별 파일 삭제
+      if (standaloneFiles.length > 0) {
+        const result = await vaultApi.bulkDelete(standaloneFiles)
+        if (result.deleted.length > 0) msgs.push(`${result.deleted.length}개 파일 삭제`)
+        if (result.not_found.length > 0) msgs.push(`${result.not_found.length}개 미발견`)
+        if (result.denied.length > 0) msgs.push(`${result.denied.length}개 권한 없음`)
+      }
+
       toast.success('단체 삭제 완료', msgs.join(', '))
 
-      if (selectedVaultPath && result.deleted.includes(selectedVaultPath)) {
-        setSelectedVaultPath('')
-        setDoc(null)
+      // 현재 열린 문서가 삭제 대상에 포함되면 닫기
+      if (selectedVaultPath) {
+        const isInDeletedFolder = Array.from(selectedFolders).some(
+          (f) => selectedVaultPath.startsWith(f + '/')
+        )
+        if (isInDeletedFolder || standaloneFiles.includes(selectedVaultPath)) {
+          setSelectedVaultPath('')
+          setDoc(null)
+        }
       }
+
       setSelectedPaths(new Set())
+      setSelectedFolders(new Set())
       setSelectMode(false)
       fetchFiles()
     } catch (err) {
@@ -279,17 +340,19 @@ tags: []
               onClick={handleSelectAll}
               className="text-2xs text-surface-700 hover:text-gold-500 transition-colors"
             >
-              {selectedPaths.size === files.length ? '전체 해제' : '전체 선택'}
+              {selectedPaths.size === files.length && selectedFolders.size === 0 ? '전체 해제' : '전체 선택'}
             </button>
             <span className="text-2xs text-surface-600 ml-auto font-mono">
-              {selectedPaths.size}개 선택
+              {selectedFolders.size > 0 && `${selectedFolders.size}폴더 `}
+              {standaloneFiles.length > 0 && `${standaloneFiles.length}파일 `}
+              {!hasSelection && '0개 선택'}
             </span>
             <button
-              onClick={() => selectedPaths.size > 0 && setShowBulkDeleteModal(true)}
-              disabled={selectedPaths.size === 0}
+              onClick={() => hasSelection && setShowBulkDeleteModal(true)}
+              disabled={!hasSelection}
               className={cn(
                 'flex items-center gap-1 text-2xs px-2 py-1 rounded transition-colors',
-                selectedPaths.size > 0
+                hasSelection
                   ? 'bg-status-error/10 text-status-error hover:bg-status-error/20'
                   : 'text-surface-500 cursor-not-allowed',
               )}
@@ -320,7 +383,9 @@ tags: []
               onDeleteFile={(filePath) => requestDelete(filePath, 'file')}
               selectMode={selectMode}
               selectedPaths={selectedPaths}
+              selectedFolders={selectedFolders}
               onToggleSelect={handleToggleSelect}
+              onToggleFolderSelect={handleToggleFolderSelect}
             />
           )}
         </div>
@@ -532,19 +597,25 @@ tags: []
         onClose={() => setShowBulkDeleteModal(false)}
         onConfirm={confirmBulkDelete}
         title="단체 삭제"
-        confirmLabel={`${selectedPaths.size}개 파일 삭제`}
+        confirmLabel={`${totalSelectCount}개 항목 삭제`}
         variant="danger"
         isLoading={isBulkDeleting}
       >
         <div>
           <p className="text-sm text-surface-800 mb-3">
-            선택한 <strong className="text-status-error">{selectedPaths.size}개</strong> 파일이 영구적으로 삭제됩니다.
+            선택한 항목이 영구적으로 삭제됩니다.
           </p>
           <div
-            className="max-h-40 overflow-y-auto rounded p-2 space-y-0.5"
+            className="max-h-48 overflow-y-auto rounded p-2 space-y-0.5"
             style={{ background: 'var(--color-bg-elevated)' }}
           >
-            {Array.from(selectedPaths).sort().map((p) => (
+            {Array.from(selectedFolders).sort().map((p) => (
+              <p key={p} className="text-2xs font-mono text-status-error truncate flex items-center gap-1.5" title={p}>
+                <FolderX size={11} className="shrink-0" />
+                {p}/ <span className="text-surface-600">(하위 전체)</span>
+              </p>
+            ))}
+            {standaloneFiles.sort().map((p) => (
               <p key={p} className="text-2xs font-mono text-surface-700 truncate" title={p}>
                 {p}
               </p>

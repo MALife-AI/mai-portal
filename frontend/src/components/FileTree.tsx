@@ -21,7 +21,9 @@ interface FileTreeProps {
   onDeleteFile?: (path: string) => void
   selectMode?: boolean
   selectedPaths?: Set<string>
+  selectedFolders?: Set<string>
   onToggleSelect?: (path: string) => void
+  onToggleFolderSelect?: (path: string) => void
   className?: string
 }
 
@@ -33,7 +35,9 @@ export function FileTree({
   onDeleteFile,
   selectMode = false,
   selectedPaths,
+  selectedFolders,
   onToggleSelect,
+  onToggleFolderSelect,
   className,
 }: FileTreeProps) {
   const tree = pathToTreeNodes(paths)
@@ -70,34 +74,50 @@ export function FileTree({
     return result
   }
 
+  /** 부모 폴더가 선택됐는지 확인 */
+  function isUnderSelectedFolder(path: string): boolean {
+    if (!selectedFolders) return false
+    for (const folder of selectedFolders) {
+      if (path.startsWith(folder + '/')) return true
+    }
+    return false
+  }
+
   function renderNode(node: TreeNode, depth = 0): React.ReactNode {
     const children = Object.values(node.children)
     const indent = depth * 12
 
     if (node.isFile) {
-      const isChecked = selectedPaths?.has(node.path) ?? false
+      const parentSelected = isUnderSelectedFolder(node.path)
+      const isChecked = parentSelected || (selectedPaths?.has(node.path) ?? false)
 
       return (
         <div key={node.path} className="group relative">
           <button
-            className={cn('tree-item w-full text-left pr-8', selectedPath === node.path && !selectMode && 'selected')}
+            className={cn(
+              'tree-item w-full text-left pr-8',
+              selectedPath === node.path && !selectMode && 'selected',
+              selectMode && parentSelected && 'opacity-60',
+            )}
             style={{ paddingLeft: `${indent + 8}px` }}
             onClick={() => {
-              if (selectMode && onToggleSelect) {
+              if (selectMode && onToggleSelect && !parentSelected) {
                 onToggleSelect(node.path)
-              } else {
+              } else if (!selectMode) {
                 onSelect(node.path)
               }
             }}
             title={node.path}
+            disabled={selectMode && parentSelected}
           >
             {selectMode ? (
               <input
                 type="checkbox"
                 checked={isChecked}
-                onChange={() => onToggleSelect?.(node.path)}
+                disabled={parentSelected}
+                onChange={() => !parentSelected && onToggleSelect?.(node.path)}
                 onClick={(e) => e.stopPropagation()}
-                className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500"
+                className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500 disabled:opacity-50"
               />
             ) : (
               <FileText size={12} className="shrink-0 text-surface-600" />
@@ -126,51 +146,51 @@ export function FileTree({
     // 최상위 폴더(Public, Private, Skills)는 삭제 불가
     const isRootFolder = depth === 0 && ['Public', 'Private', 'Skills'].includes(node.name)
 
-    // 폴더 내 파일들의 선택 상태
+    const isFolderSelected = selectedFolders?.has(node.path) ?? false
+    const parentSelected = isUnderSelectedFolder(node.path)
+    const effectivelySelected = isFolderSelected || parentSelected
+
     const folderFiles = collectFilePaths(node)
-    const folderCheckedCount = selectMode ? folderFiles.filter((p) => selectedPaths?.has(p)).length : 0
-    const folderAllChecked = selectMode && folderFiles.length > 0 && folderCheckedCount === folderFiles.length
-    const folderPartialChecked = selectMode && folderCheckedCount > 0 && !folderAllChecked
 
     return (
       <div key={node.path} className="group/folder relative">
         <button
-          className="tree-item w-full text-left pr-8"
+          className={cn(
+            'tree-item w-full text-left pr-8',
+            selectMode && parentSelected && 'opacity-60',
+          )}
           style={{ paddingLeft: `${indent + 8}px` }}
           onClick={() => {
-            if (selectMode && onToggleSelect) {
-              // 폴더 클릭 시 하위 파일 전체 토글
-              for (const filePath of folderFiles) {
-                if (folderAllChecked) {
-                  if (selectedPaths?.has(filePath)) onToggleSelect(filePath)
-                } else {
-                  if (!selectedPaths?.has(filePath)) onToggleSelect(filePath)
-                }
-              }
-            } else {
+            if (selectMode && !isRootFolder && !parentSelected && onToggleFolderSelect) {
+              onToggleFolderSelect(node.path)
+            } else if (!selectMode) {
               toggleExpand(node.path)
             }
           }}
         >
-          {selectMode ? (
+          {selectMode && !isRootFolder ? (
             <input
               type="checkbox"
-              checked={folderAllChecked}
-              ref={(el) => { if (el) el.indeterminate = folderPartialChecked }}
+              checked={effectivelySelected}
+              disabled={parentSelected}
               onChange={() => {}}
               onClick={(e) => e.stopPropagation()}
-              className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500"
+              className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500 disabled:opacity-50"
             />
+          ) : selectMode && isRootFolder ? (
+            <span className="w-3.5 shrink-0" />
           ) : (
             <span className="text-surface-600">
               {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
             </span>
           )}
           {getFolderIcon(node.name, isOpen)}
-          <span className="truncate font-medium">{node.name}</span>
+          <span className={cn('truncate font-medium', selectMode && effectivelySelected && 'text-gold-500')}>
+            {node.name}
+          </span>
           <span className="ml-auto text-2xs text-surface-600 font-mono">
-            {selectMode && folderCheckedCount > 0
-              ? `${folderCheckedCount}/${folderFiles.length}`
+            {selectMode && effectivelySelected
+              ? `${folderFiles.length}개`
               : children.length}
           </span>
         </button>
@@ -195,7 +215,6 @@ export function FileTree({
             >
               {children
                 .sort((a, b) => {
-                  // Folders before files, then alpha
                   if (a.isFile !== b.isFile) return a.isFile ? 1 : -1
                   return a.name.localeCompare(b.name, 'ko')
                 })
