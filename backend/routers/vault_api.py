@@ -58,6 +58,10 @@ class DeleteRequest(BaseModel):
     path: str
 
 
+class BulkDeleteRequest(BaseModel):
+    paths: list[str]
+
+
 @router.delete("/doc")
 async def delete_document(
     body: DeleteRequest,
