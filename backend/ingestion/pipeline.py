@@ -162,6 +162,11 @@ class IngestionPipeline:
                 ast_json = inject_table_into_ast(
                     ast_json, img_info["node_id"], result["markdown_table"]
                 )
+            elif result["type"] == "text":
+                # OCR 추출 텍스트로 이미지 노드 교체
+                ast_json = inject_table_into_ast(
+                    ast_json, img_info["node_id"], result["caption"]
+                )
             else:
                 ast_json = inject_caption_into_ast(
                     ast_json, img_info["node_id"], result["caption"]
