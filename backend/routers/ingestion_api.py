@@ -13,9 +13,33 @@ from starlette.responses import StreamingResponse
 from backend.dependencies import get_current_user
 from backend.config import settings
 from backend.ingestion.pipeline import IngestionPipeline
+from backend.core.task_manager import task_manager, TaskInfo, TaskStatus
 
 router = APIRouter()
 _pipeline = IngestionPipeline()
+
+
+# ─── 태스크 관리 API ──────────────────────────────────────────────────────────
+
+@router.get("/tasks")
+async def list_tasks(user_id: str = Depends(get_current_user)):
+    return {"tasks": task_manager.list_tasks()}
+
+
+@router.get("/tasks/{task_id}")
+async def get_task(task_id: str, user_id: str = Depends(get_current_user)):
+    info = task_manager.get(task_id)
+    if not info:
+        return {"error": "Task not found"}
+    return info.to_dict()
+
+
+@router.delete("/tasks/{task_id}")
+async def cancel_task(task_id: str, user_id: str = Depends(get_current_user)):
+    ok = task_manager.cancel(task_id)
+    if not ok:
+        return {"error": "취소할 수 없는 태스크입니다"}
+    return {"status": "cancelled", "task_id": task_id}
 
 
 @router.post("/upload")
@@ -24,18 +48,28 @@ async def upload_and_ingest(
     dest: str = Form(""),
     user_id: str = Depends(get_current_user),
 ):
+    filename = file.filename or "doc"
     with tempfile.NamedTemporaryFile(
-        suffix=Path(file.filename or "doc").suffix,
+        suffix=Path(filename).suffix,
         delete=False,
     ) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = Path(tmp.name)
 
-    rel_path = await _pipeline.ingest(tmp_path, user_id=user_id, dest_rel=dest or None)
-    tmp_path.unlink(missing_ok=True)
+    async def _run(task: TaskInfo):
+        task.message = f"변환 중: {filename}"
+        task.total = 1
+        try:
+            rel_path = await _pipeline.ingest(tmp_path, user_id=user_id, dest_rel=dest or None)
+            task.progress = 1
+            task.result = {"path": rel_path}
+            task.message = f"완료: {rel_path}"
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
-    return {"status": "ingested", "path": rel_path}
+    task_id = task_manager.submit(f"업로드: {filename}", _run)
+    return {"status": "accepted", "task_id": task_id}
 
 
 @router.post("/upload-batch")
@@ -244,77 +278,75 @@ async def convert_pdf_to_docx(
     dest: str = Form(""),
     user_id: str = Depends(get_current_user),
 ):
-    """PDF → DOCX 변환 → 마크다운 인제스션 → 그래프 적재.
-
-    1. pdf2docx로 레이아웃 보존 DOCX 생성
-    2. DOCX를 Pandoc 파이프라인으로 마크다운 변환 → vault 저장
-    3. 그래프 엔티티/관계 추출 → 지식그래프 적재
-    """
+    """PDF → DOCX → 마크다운 → 그래프 적재 (백그라운드 태스크)."""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return {"error": "PDF 파일만 지원합니다"}
 
-    doc_name = Path(file.filename).stem
+    filename = file.filename
+    doc_name = Path(filename).stem
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
         content = await file.read()
         tmp_in.write(content)
         pdf_path = Path(tmp_in.name)
 
-    docx_path = pdf_path.with_suffix(".docx")
-
-    try:
-        # Step 1: PDF → DOCX (레이아웃 보존)
-        from pdf2docx import Converter
-
-        def _convert():
-            cv = Converter(str(pdf_path))
-            cv.convert(str(docx_path))
-            cv.close()
-
-        await asyncio.to_thread(_convert)
-
-        if not docx_path.exists():
-            return {"error": "DOCX 변환 실패"}
-
-        # Step 2: DOCX → 마크다운 (인제스션 파이프라인)
-        rel_path = dest or f"Public/{doc_name}.md"
-        md_path = await _pipeline.ingest(docx_path, user_id=user_id, dest_rel=rel_path)
-
-        # Step 3: 그래프 적재
-        graph_result = {"entities": 0, "relationships": 0}
+    async def _run(task: TaskInfo):
+        docx_path = pdf_path.with_suffix(".docx")
         try:
-            from backend.graph.extractor import GraphExtractor
-            from backend.graph.store import GraphStore
+            # Step 1: PDF → DOCX
+            task.total = 3
+            task.message = "PDF → DOCX 변환 중..."
+            from pdf2docx import Converter
 
-            persist_path = settings.vault_root / ".graph" / "knowledge_graph.json"
-            store = GraphStore(persist_path=persist_path)
-            extractor = GraphExtractor(graph_store=store)
+            def _convert():
+                cv = Converter(str(pdf_path))
+                cv.convert(str(docx_path))
+                cv.close()
 
-            md_full_path = settings.vault_root / rel_path.lstrip("/")
-            if md_full_path.exists():
-                md_content = md_full_path.read_text(encoding="utf-8")
-                entities, relationships = await extractor.extract_from_file(
-                    md_full_path, f"/{rel_path.lstrip('/')}"
-                )
-                store.save()
-                graph_result = {
-                    "entities": len(entities),
-                    "relationships": len(relationships),
-                }
-        except Exception as e:
-            graph_result = {"error": str(e)}
+            await asyncio.to_thread(_convert)
+            task.progress = 1
 
-        return {
-            "status": "completed",
-            "path": md_path,
-            "source": file.filename,
-            "graph": graph_result,
-        }
-    except Exception as e:
-        return {"error": f"처리 실패: {str(e)}"}
-    finally:
-        pdf_path.unlink(missing_ok=True)
-        docx_path.unlink(missing_ok=True)
+            if not docx_path.exists():
+                raise RuntimeError("DOCX 변환 실패")
+
+            # Step 2: DOCX → 마크다운
+            task.message = "마크다운 변환 중..."
+            rel_path = dest or f"Public/{doc_name}.md"
+            md_path = await _pipeline.ingest(docx_path, user_id=user_id, dest_rel=rel_path)
+            task.progress = 2
+            task.result["path"] = md_path
+
+            # Step 3: 그래프 적재
+            task.message = "지식그래프 적재 중..."
+            try:
+                from backend.graph.extractor import GraphExtractor
+                from backend.graph.store import GraphStore
+
+                persist_path = settings.vault_root / ".graph" / "knowledge_graph.json"
+                store = GraphStore(persist_path=persist_path)
+                extractor = GraphExtractor(graph_store=store)
+
+                md_full_path = settings.vault_root / rel_path.lstrip("/")
+                if md_full_path.exists():
+                    entities, relationships = await extractor.extract_from_file(
+                        md_full_path, f"/{rel_path.lstrip('/')}"
+                    )
+                    store.save()
+                    task.result["graph"] = {
+                        "entities": len(entities),
+                        "relationships": len(relationships),
+                    }
+            except Exception as e:
+                task.result["graph"] = {"error": str(e)}
+
+            task.progress = 3
+            task.message = f"완료: {md_path}"
+        finally:
+            pdf_path.unlink(missing_ok=True)
+            docx_path.unlink(missing_ok=True)
+
+    task_id = task_manager.submit(f"PDF 변환: {filename}", _run)
+    return {"status": "accepted", "task_id": task_id}
 
 
 def _sse(data: dict) -> str:
@@ -323,7 +355,7 @@ def _sse(data: dict) -> str:
 
 
 async def _fallback_convert(file_path: Path, ext: str) -> str | None:
-    """Marker 실패 시 폴백 변환 체인: pandoc → pdftotext → OCR."""
+    """Marker 실패 시 폴백 변환 체인: pdf2docx → pandoc → pdftotext → OCR."""
     import subprocess
     import shutil
     import tempfile
@@ -344,7 +376,36 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
     if ext != ".pdf":
         return None
 
-    # 2단계: pdftotext (텍스트 레이어가 있는 PDF)
+    # 2단계: pdf2docx → pandoc (레이아웃 보존 변환)
+    try:
+        from pdf2docx import Converter as Pdf2DocxConverter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            docx_path = tmp_path / "converted.docx"
+
+            def _pdf2docx():
+                cv = Pdf2DocxConverter(str(file_path))
+                cv.convert(str(docx_path))
+                cv.close()
+
+            await asyncio.to_thread(_pdf2docx)
+
+            if docx_path.exists():
+                result = subprocess.run(
+                    ["pandoc", str(docx_path), "-t", "gfm", "--wrap=none"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    text = result.stdout.strip()
+                    # 유의미한 텍스트가 충분히 있는지 확인
+                    alpha_count = sum(1 for c in text if c.isalpha())
+                    if alpha_count > 100:
+                        return f"# {file_path.stem}\n\n{text}"
+    except Exception:
+        pass
+
+    # 3단계: pdftotext (텍스트 레이어가 있는 PDF)
     if shutil.which("pdftotext"):
         try:
             result = subprocess.run(
@@ -352,19 +413,19 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
                 capture_output=True, text=True, timeout=30,
             )
             text = result.stdout.strip()
-            if len(text) > 50:  # 유의미한 텍스트가 있으면 성공
+            alpha_count = sum(1 for c in text if c.isalpha())
+            if alpha_count > 100:
                 from backend.ingestion.markdown_post import convert_layout_tables
                 text = convert_layout_tables(text)
                 return f"# {file_path.stem}\n\n{text}"
         except Exception:
             pass
 
-    # 3단계: OCR (스캔 이미지 PDF) — pdftoppm + tesseract
+    # 4단계: OCR (스캔 이미지 PDF) — pdftoppm + tesseract
     if shutil.which("pdftoppm") and shutil.which("tesseract"):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_path = Path(tmp)
-                # PDF → PNG (300dpi)
                 subprocess.run(
                     ["pdftoppm", "-png", "-r", "200", str(file_path), str(tmp_path / "page")],
                     capture_output=True, timeout=120,

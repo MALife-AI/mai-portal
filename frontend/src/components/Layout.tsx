@@ -2,6 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { ToastContainer } from './Toast'
+import { TaskBar } from './TaskBar'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': '대시보드',
@@ -76,6 +77,9 @@ export function Layout() {
 
       {/* Toast notifications */}
       <ToastContainer />
+
+      {/* 백그라운드 태스크 진행바 (모든 페이지에서 표시) */}
+      <TaskBar />
     </div>
   )
 }
