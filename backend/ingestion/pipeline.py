@@ -114,11 +114,93 @@ class IngestionPipeline:
         )
 
     async def _pdf_to_ast(self, file_path: Path) -> dict[str, Any]:
-        """PDF → Marker(Layout Analysis) → Markdown → Pandoc AST.
+        """PDF → 텍스트 확인 → pdf2docx 또는 OCR → Pandoc AST.
 
-        Delegates to :class:`~backend.ingestion.converters.PDFConverter`.
+        1. pdftotext로 텍스트 존재 여부 확인
+        2. 텍스트 충분 → pdf2docx → DOCX → Pandoc AST
+        3. 텍스트 부족 (스캔 문서) → OCR(pdftoppm+tesseract) → Pandoc AST
         """
-        return await asyncio.to_thread(self._pdf_converter.convert, file_path)
+        import subprocess
+        import sys
+        import tempfile
+
+        # 텍스트 존재 여부 확인 (빠름)
+        is_scanned = False
+        try:
+            r = await asyncio.to_thread(
+                subprocess.run,
+                ["pdftotext", str(file_path), "-"],
+                capture_output=True, text=True, timeout=15,
+            )
+            korean_chars = sum(1 for c in r.stdout if '\uac00' <= c <= '\ud7a3')
+            is_scanned = korean_chars < 50
+        except Exception:
+            is_scanned = True
+
+        if is_scanned:
+            # OCR 경로
+            import json as _json
+            md_text = await self._ocr_pdf(file_path)
+            r = await asyncio.to_thread(
+                subprocess.run,
+                ["pandoc", "-f", "markdown", "-t", "json"],
+                input=md_text, capture_output=True, text=True, timeout=60,
+            )
+            return _json.loads(r.stdout)
+
+        # 텍스트 PDF → pdf2docx (별도 프로세스, 120초 타임아웃)
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "converted.docx"
+            script = (
+                "import sys; from pdf2docx import Converter; "
+                "cv = Converter(sys.argv[1]); cv.convert(sys.argv[2]); cv.close()"
+            )
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-c", script, str(file_path), str(docx_path)],
+                capture_output=True, timeout=120,
+            )
+
+            if proc.returncode != 0 or not docx_path.exists():
+                raise RuntimeError(f"pdf2docx failed: {proc.stderr[:200]}")
+
+            return await asyncio.to_thread(
+                self._office_converter.convert, docx_path,
+            )
+
+    async def _ocr_pdf(self, file_path: Path) -> str:
+        """스캔 PDF → OCR(pdftoppm + tesseract) → 마크다운 텍스트."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            # PDF → PNG (200dpi)
+            await asyncio.to_thread(
+                subprocess.run,
+                ["pdftoppm", "-png", "-r", "200", str(file_path), str(tmp_path / "page")],
+                capture_output=True, timeout=300,
+            )
+
+            pages = sorted(tmp_path.glob("page-*.png"))
+            if not pages:
+                raise RuntimeError("pdftoppm produced no output")
+
+            all_text: list[str] = []
+            for i, page_img in enumerate(pages, 1):
+                r = await asyncio.to_thread(
+                    subprocess.run,
+                    ["tesseract", str(page_img), "stdout", "-l", "kor+eng", "--psm", "6"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                text = r.stdout.strip()
+                if text:
+                    all_text.append(f"<!-- page:{i} -->\n{text}")
+
+            if not all_text:
+                raise RuntimeError("OCR produced no text")
+
+            return f"# {file_path.stem}\n\n" + "\n\n".join(all_text)
 
     async def _hwp_to_ast(self, file_path: Path) -> dict[str, Any]:
         """HWP → (LibreOffice → DOCX / hwp5txt fallback) → Pandoc AST.
