@@ -22,8 +22,8 @@ interface FileTreeProps {
   selectMode?: boolean
   selectedPaths?: Set<string>
   selectedFolders?: Set<string>
-  onToggleSelect?: (path: string) => void
-  onToggleFolderSelect?: (path: string) => void
+  onToggleSelect?: (path: string, shiftKey: boolean) => void
+  onToggleFolderSelect?: (path: string, shiftKey: boolean) => void
   className?: string
 }
 
@@ -74,7 +74,6 @@ export function FileTree({
     return result
   }
 
-  /** 부모 폴더가 선택됐는지 확인 */
   function isUnderSelectedFolder(path: string): boolean {
     if (!selectedFolders) return false
     for (const folder of selectedFolders) {
@@ -100,9 +99,9 @@ export function FileTree({
               selectMode && parentSelected && 'opacity-60',
             )}
             style={{ paddingLeft: `${indent + 8}px` }}
-            onClick={() => {
+            onClick={(e) => {
               if (selectMode && onToggleSelect && !parentSelected) {
-                onToggleSelect(node.path)
+                onToggleSelect(node.path, e.shiftKey)
               } else if (!selectMode) {
                 onSelect(node.path)
               }
@@ -115,9 +114,8 @@ export function FileTree({
                 type="checkbox"
                 checked={isChecked}
                 disabled={parentSelected}
-                onChange={() => !parentSelected && onToggleSelect?.(node.path)}
-                onClick={(e) => e.stopPropagation()}
-                className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500 disabled:opacity-50"
+                readOnly
+                className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 pointer-events-none accent-amber-500 disabled:opacity-50"
               />
             ) : (
               <FileText size={12} className="shrink-0 text-surface-600" />
@@ -142,8 +140,6 @@ export function FileTree({
     if (children.length === 0) return null
 
     const isOpen = expanded.has(node.path)
-
-    // 최상위 폴더(Public, Private, Skills)는 삭제 불가
     const isRootFolder = depth === 0 && ['Public', 'Private', 'Skills'].includes(node.name)
 
     const isFolderSelected = selectedFolders?.has(node.path) ?? false
@@ -160,9 +156,9 @@ export function FileTree({
             selectMode && parentSelected && 'opacity-60',
           )}
           style={{ paddingLeft: `${indent + 8}px` }}
-          onClick={() => {
+          onClick={(e) => {
             if (selectMode && !isRootFolder && !parentSelected && onToggleFolderSelect) {
-              onToggleFolderSelect(node.path)
+              onToggleFolderSelect(node.path, e.shiftKey)
             } else if (!selectMode) {
               toggleExpand(node.path)
             }
@@ -173,9 +169,8 @@ export function FileTree({
               type="checkbox"
               checked={effectivelySelected}
               disabled={parentSelected}
-              onChange={() => {}}
-              onClick={(e) => e.stopPropagation()}
-              className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 cursor-pointer accent-amber-500 disabled:opacity-50"
+              readOnly
+              className="shrink-0 w-3.5 h-3.5 rounded border-surface-400 text-gold-500 focus:ring-gold-500 pointer-events-none accent-amber-500 disabled:opacity-50"
             />
           ) : selectMode && isRootFolder ? (
             <span className="w-3.5 shrink-0" />

@@ -112,6 +112,38 @@ export interface TreeNode {
   isFile: boolean
 }
 
+export interface SelectableItem {
+  path: string
+  isFolder: boolean
+}
+
+/** 트리를 화면 표시 순서대로 플랫 리스트로 변환 (범위 선택용) */
+export function pathsToFlatList(paths: string[]): SelectableItem[] {
+  const tree = pathToTreeNodes(paths)
+  const result: SelectableItem[] = []
+
+  function walk(node: TreeNode, depth: number) {
+    const children = Object.values(node.children).sort((a, b) => {
+      if (a.isFile !== b.isFile) return a.isFile ? 1 : -1
+      return a.name.localeCompare(b.name, 'ko')
+    })
+    for (const child of children) {
+      if (child.isFile) {
+        result.push({ path: child.path, isFolder: false })
+      } else {
+        const isRootFolder = depth === 0 && ['Public', 'Private', 'Skills'].includes(child.name)
+        if (!isRootFolder) {
+          result.push({ path: child.path, isFolder: true })
+        }
+        walk(child, depth + 1)
+      }
+    }
+  }
+
+  walk(tree, 0)
+  return result
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

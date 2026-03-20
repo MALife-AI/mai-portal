@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import {
   RefreshCw,
@@ -18,7 +18,7 @@ import { useStore, useToast } from '@/store/useStore'
 import { FileTree } from '@/components/FileTree'
 import { MarkdownViewer, FrontmatterDisplay, parseFrontmatter } from '@/components/MarkdownViewer'
 import { Modal } from '@/components/Modal'
-import { getFileName, cn } from '@/lib/utils'
+import { getFileName, cn, pathsToFlatList } from '@/lib/utils'
 
 export default function VaultExplorer() {
   const toast = useToast()
@@ -161,6 +161,10 @@ tags: []
     }
   }
 
+  // 범위 선택용 플랫 리스트 & 마지막 클릭 추적
+  const flatList = useMemo(() => pathsToFlatList(files), [files])
+  const lastClickedRef = useRef<string | null>(null)
+
   // 멀티 선택 관련
   function toggleSelectMode() {
     if (selectMode) {
@@ -172,9 +176,44 @@ tags: []
       setSelectedPaths(new Set())
       setSelectedFolders(new Set())
     }
+    lastClickedRef.current = null
   }
 
-  function handleToggleSelect(path: string) {
+  function applyRangeSelect(currentPath: string, isFolder: boolean) {
+    const lastPath = lastClickedRef.current
+    if (!lastPath) return false
+
+    const lastIdx = flatList.findIndex((item) => item.path === lastPath)
+    const curIdx = flatList.findIndex((item) => item.path === currentPath)
+    if (lastIdx === -1 || curIdx === -1) return false
+
+    const from = Math.min(lastIdx, curIdx)
+    const to = Math.max(lastIdx, curIdx)
+    const rangeItems = flatList.slice(from, to + 1)
+
+    setSelectedPaths((prev) => {
+      const next = new Set(prev)
+      for (const item of rangeItems) {
+        if (!item.isFolder) next.add(item.path)
+      }
+      return next
+    })
+    setSelectedFolders((prev) => {
+      const next = new Set(prev)
+      for (const item of rangeItems) {
+        if (item.isFolder) next.add(item.path)
+      }
+      return next
+    })
+    return true
+  }
+
+  function handleToggleSelect(path: string, shiftKey: boolean) {
+    if (shiftKey && applyRangeSelect(path, false)) {
+      lastClickedRef.current = path
+      return
+    }
+    lastClickedRef.current = path
     setSelectedPaths((prev) => {
       const next = new Set(prev)
       if (next.has(path)) {
@@ -186,7 +225,12 @@ tags: []
     })
   }
 
-  function handleToggleFolderSelect(folderPath: string) {
+  function handleToggleFolderSelect(folderPath: string, shiftKey: boolean) {
+    if (shiftKey && applyRangeSelect(folderPath, true)) {
+      lastClickedRef.current = folderPath
+      return
+    }
+    lastClickedRef.current = folderPath
     setSelectedFolders((prev) => {
       const next = new Set(prev)
       if (next.has(folderPath)) {
