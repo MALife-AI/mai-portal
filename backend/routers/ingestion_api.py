@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -373,22 +374,24 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
     if ext != ".pdf":
         return None
 
-    # 2단계: pdf2docx → pandoc (레이아웃 보존 변환, 60초 타임아웃)
+    # 2단계: pdf2docx → pandoc (별도 프로세스로 격리, 60초 타임아웃)
     try:
-        from pdf2docx import Converter as Pdf2DocxConverter
-
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             docx_path = tmp_path / "converted.docx"
+            script = f"""
+import sys
+from pdf2docx import Converter
+cv = Converter(sys.argv[1])
+cv.convert(sys.argv[2])
+cv.close()
+"""
+            proc = subprocess.run(
+                [sys.executable, "-c", script, str(file_path), str(docx_path)],
+                capture_output=True, timeout=60,
+            )
 
-            def _pdf2docx():
-                cv = Pdf2DocxConverter(str(file_path))
-                cv.convert(str(docx_path))
-                cv.close()
-
-            await asyncio.wait_for(asyncio.to_thread(_pdf2docx), timeout=60)
-
-            if docx_path.exists():
+            if proc.returncode == 0 and docx_path.exists():
                 result = subprocess.run(
                     ["pandoc", str(docx_path), "-t", "gfm", "--wrap=none"],
                     capture_output=True, text=True, timeout=60,
@@ -398,7 +401,7 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
                     alpha_count = sum(1 for c in text if c.isalpha())
                     if alpha_count > 100:
                         return f"# {file_path.stem}\n\n{text}"
-    except asyncio.TimeoutError:
+    except subprocess.TimeoutExpired:
         import logging
         logging.getLogger(__name__).warning("pdf2docx timed out for %s", file_path.name)
     except Exception:
