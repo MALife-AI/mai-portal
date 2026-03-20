@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -127,11 +126,8 @@ async def _guard_node(state: AgentState, skill_registry: SkillRegistry) -> Agent
 async def build_graph(skill_registry: SkillRegistry) -> StateGraph:
     """LangGraph 워크플로우를 구성하고 반환."""
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        api_key=settings.openai_api_key,
-        temperature=0,
-    )
+    from backend.agents.llm_factory import create_chat_llm
+    llm = create_chat_llm()
 
     # ── 노드 정의 ──────────────────────────────────────
     async def _route(state: AgentState) -> AgentState:

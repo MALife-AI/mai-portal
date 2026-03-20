@@ -435,7 +435,46 @@ class GraphRAGEngine:
             for entity in entities:
                 desc = entity.properties.get("description", "")
                 desc_str = f": {desc}" if desc else ""
-                parts.append(f"- [{entity.entity_type}] {entity.name}{desc_str}")
+                line = f"- [{entity.entity_type}] {entity.name}{desc_str}"
+
+                # 보험 도메인 프로퍼티 표시
+                prop_parts: list[str] = []
+                for key, label in [
+                    ("product_code", "상품코드"),
+                    ("rider_code", "보종코드"),
+                    ("coverage_amount", "보장금액"),
+                    ("coverage_period", "보장기간"),
+                    ("payment_period", "납입기간"),
+                    ("waiting_period", "면책기간"),
+                    ("renewal_type", "갱신유형"),
+                    ("surrender_type", "환급유형"),
+                    ("surrender_ratio", "환급비율"),
+                    ("underwriting_class", "심사등급"),
+                    ("age_range", "가입연령"),
+                    ("claim_conditions", "지급조건"),
+                    ("exclusions", "면책사항"),
+                    ("duplicate_surgery_rule", "중복수술규칙"),
+                    ("effective_date", "시행일"),
+                    ("severity", "중증도"),
+                    ("icd_code", "질병코드"),
+                    ("rate_reference", "위험률출처"),
+                    ("parent_product", "주계약"),
+                    ("base_amount", "기준가입금액"),
+                    ("sub_types", "세부유형"),
+                    ("mandatory_riders", "의무동시가입"),
+                ]:
+                    val = entity.properties.get(key)
+                    if val:
+                        prop_parts.append(f"{label}={val}")
+                if prop_parts:
+                    line += f" ({', '.join(prop_parts)})"
+
+                # 출처 문서
+                source_doc = entity.properties.get("source_document")
+                if source_doc:
+                    line += f" [출처: {source_doc}]"
+
+                parts.append(line)
 
         if relationships:
             parts.append("\n=== 관계 ===")

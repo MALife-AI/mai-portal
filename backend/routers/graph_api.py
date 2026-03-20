@@ -22,6 +22,7 @@ POST /search                — GraphRAG search (body: {query, mode, n_results})
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,10 +30,30 @@ from pydantic import BaseModel, Field
 
 from backend.core.iam import IAMEngine
 from backend.dependencies import get_current_user, get_iam
+from backend.agents.checkpointer import write_audit_record
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _log_graph_action(user_id: str, action: str, detail: Any = None) -> None:
+    """그래프 조작/조회에 대한 감사로그 기록."""
+    try:
+        write_audit_record({
+            "thread_id": f"graph_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+            "user_id": user_id,
+            "step": 0,
+            "skill_name": f"graph.{action}",
+            "input_payload": detail,
+            "output_payload": None,
+            "status": "success",
+            "reasoning": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        logger.warning("Failed to write graph audit log", exc_info=True)
 
 # ---------------------------------------------------------------------------
 # Lazy singletons — imported on first request to avoid startup overhead
@@ -141,7 +162,7 @@ async def search_entities(
             {
                 "id": e.id,
                 "name": e.name,
-                "type": e.entity_type,
+                "entity_type": e.entity_type,
                 "mentions": e.mentions,
                 "source_paths": e.source_paths,
                 "properties": e.properties,
@@ -174,13 +195,15 @@ async def get_entity(
     if entity is None:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
 
+    _log_graph_action(user_id, "view_entity", {"entity_id": entity_id, "entity_name": entity.name})
+
     neighbors, relationships = store.get_neighbors(entity_id, depth=1)
 
     return {
         "entity": {
             "id": entity.id,
             "name": entity.name,
-            "type": entity.entity_type,
+            "entity_type": entity.entity_type,
             "mentions": entity.mentions,
             "source_paths": entity.source_paths,
             "properties": entity.properties,
@@ -189,8 +212,10 @@ async def get_entity(
             {
                 "id": e.id,
                 "name": e.name,
-                "type": e.entity_type,
+                "entity_type": e.entity_type,
                 "mentions": e.mentions,
+                "properties": e.properties or {},
+                "source_paths": e.source_paths or [],
             }
             for e in neighbors
         ],
@@ -327,6 +352,7 @@ async def build_graph(
 
     extractor = _get_extractor()
     summary = await extractor.build_from_vault(settings.vault_root)
+    _log_graph_action(user_id, "build_full", summary)
     logger.info("Graph rebuilt by user=%s: %s", user_id, summary)
     return {"status": "completed", **summary}
 
@@ -373,6 +399,12 @@ async def build_document(
 
     # Persist updated graph state
     _get_store().save()
+
+    _log_graph_action(user_id, "build_document", {
+        "source_path": body.rel_path,
+        "entities": len(entities),
+        "relationships": len(relationships),
+    })
 
     return {
         "status": "ok",
@@ -421,6 +453,13 @@ async def graphrag_search(
         mode=body.mode,
         n_results=body.n_results,
     )
+
+    _log_graph_action(user_id, "search", {
+        "query": body.query,
+        "mode": body.mode,
+        "matched_entities": len(result.matched_entities),
+        "source_documents": result.source_documents,
+    })
 
     return {
         "query": result.query,

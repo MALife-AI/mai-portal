@@ -1,18 +1,7 @@
-"""GraphExtractor: LLM 기반 엔티티 및 관계 추출 + 지식그래프 구축.
+"""GraphExtractor: 보험 도메인 특화 엔티티/관계 추출기.
 
-Extracts named entities and semantic relationships from Markdown documents
-using an OpenAI chat model, then writes them into a :class:`GraphStore`.
-Community detection runs after bulk extraction to group related entities.
-
-Design notes
-------------
-- Extraction is chunked: each document is split into passages, each passage
-  is sent to the LLM with a structured JSON prompt.
-- The LLM is instructed to return a dict with ``entities`` and
-  ``relationships`` lists so that responses can be parsed deterministically.
-- Slug generation is deterministic (lowercase + non-alnum → underscore) so
-  that the same entity name always produces the same graph node ID.
-- All I/O (file reads, LLM calls) is async to avoid blocking the event loop.
+claude-code-api-wrapper를 LLM 백엔드로 사용.
+상품설계·상담·클레임·언더라이팅에 필요한 프로퍼티를 구조적으로 추출합니다.
 """
 from __future__ import annotations
 
@@ -23,57 +12,186 @@ import re
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from backend.config import settings
-from backend.graph.models import Community, Entity, Relationship
+from backend.graph.models import Entity, Relationship
 from backend.graph.store import GraphStore
 
 logger = logging.getLogger(__name__)
 
-# Maximum characters per extraction passage to stay within LLM context limits
 _CHUNK_SIZE = 3000
-# Maximum concurrent LLM calls during bulk extraction
 _MAX_CONCURRENCY = 4
 
 _EXTRACTION_PROMPT = """\
-다음 텍스트에서 중요한 엔티티(개체)와 관계를 추출하여 JSON으로 반환하세요.
+당신은 보험 도메인 지식그래프 전문 추출기입니다.
+다음 보험 약관/사업방법서/산출방법서 텍스트에서 엔티티와 관계를 추출하여 JSON으로 반환하세요.
 
-엔티티 타입 목록:
-- person (사람)
-- product (상품/서비스)
-- regulation (규정/법령)
-- organization (조직/기관)
-- concept (개념/용어)
-- document (문서/자료)
-- term (전문용어)
+## 엔티티 타입 & 추출할 프로퍼티
 
-출력 형식 (반드시 유효한 JSON만 반환):
-{
+1. **product** (보험상품/특약)
+   - product_code: 상품코드 (예: "A3756")
+   - rider_code: 보종코드 (예: "85044")
+   - coverage_amount: 보장금액 (예: "3000만원")
+   - coverage_period: 보장기간 (예: "90세만기", "100세만기", "종신")
+   - payment_period: 보험료납입기간 (예: "10년납", "20년납")
+   - payment_frequency: 납입주기 (예: "월납")
+   - waiting_period: 면책/감액기간 (예: "90일")
+   - renewal_type: "갱신형" 또는 "비갱신형"
+   - age_range: 가입연령 (예: "15세~75세")
+   - underwriting_class: 심사등급 (예: "간편고지", "간편고지형(0)~(5)", "표준체")
+   - premium_type: 보험료유형 (예: "자연식", "평준")
+   - surrender_type: 해약환급금 유형 ("기본형", "해약환급금이 없는 유형")
+   - surrender_ratio: 해약환급금 비율 (예: "기본형의 50%")
+   - base_amount: 기준가입금액 (예: "10만원")
+   - sub_types: 세부유형 (예: "1종~5종")
+   - parent_product: 종속된 주계약명 (특약인 경우)
+   - effective_date: 시행일 (YYYY-MM 또는 "2504" → "2025-04")
+   - document_type: 출처 문서유형 ("약관", "사업방법서", "산출방법서")
+
+2. **coverage** (보장항목: 진단금, 수술비, 입원비 등)
+   - coverage_amount: 지급금액
+   - claim_conditions: 지급조건 (예: "최초1회한", "수술1회당", "1일이상 120일한도")
+   - exclusions: 면책사항
+   - duplicate_surgery_rule: 중복수술 시 지급규칙 (예: "가장 높은 금액 한 종류만")
+
+3. **condition** (질병/상해: 암, 뇌혈관질환, 심장질환 등)
+   - icd_code: 질병코드 (예: "C73")
+   - severity: 중증도 분류 (예: "일반암", "소액암", "고액암")
+
+4. **regulation** (규정/법령/약관조항)
+   - effective_date: 시행일
+   - article_number: 조항번호 (예: "제3조")
+
+5. **organization** (회사/기관)
+6. **term** (전문용어/정의)
+   - definition: 정의 내용
+
+7. **document** (문서/자료)
+   - document_type: "약관", "사업방법서", "산출방법서"
+   - effective_date: 시행일/개정일
+
+8. **actuarial** (보험수리/산출 관련)
+   - rate_reference: 적용위험률 출처 (예: "보험개발원 생명장기 제2024-307호")
+   - expense_ratio: 사업비율 (예: "α_p=75%")
+   - lapse_rate: 적용해지율 관련
+
+## 관계 타입
+- covers: 보장 (상품→보장항목/질병)
+- includes: 포함 (주계약→종속특약)
+- excludes: 면책/제외 (상품→질병)
+- requires: 가입요건/의무동시가입
+- depends_on: 의존
+- regulates: 규제 (법령→상품)
+- belongs_to: 소속 (특약→주계약)
+- references: 참조
+- provides: 제공
+- defines: 정의 (약관→용어)
+- diagnoses: 진단관련
+- pays: 지급 (보장항목→금액)
+- renews_as: 갱신관계
+- supersedes: 대체 (신규→구버전)
+- must_coexist: 의무동시가입 (특약↔특약)
+- converts_to: 전환 (간편고지→일반심사)
+
+## 출력 형식 (유효한 JSON만 반환)
+{{
   "entities": [
-    {"name": "엔티티명", "type": "엔티티타입", "description": "간략한 설명"}
+    {{
+      "name": "엔티티명",
+      "type": "엔티티타입",
+      "description": "간략한 설명",
+      "properties": {{
+        ...해당하는 프로퍼티만 포함
+      }}
+    }}
   ],
   "relationships": [
-    {"source": "소스엔티티명", "target": "타겟엔티티명", "type": "관계타입", "description": "관계설명"}
+    {{"source": "소스", "target": "타겟", "type": "관계타입", "description": "관계설명"}}
   ]
-}
+}}
 
-관계 타입 예시: covers(보장), depends_on(의존), regulates(규제), belongs_to(소속), references(참조),
-               includes(포함), excludes(제외), requires(요건), provides(제공), defines(정의)
+## 추출 지침
+- 보험 상품명/특약명은 정확하게 추출 (예: "1-5종수술특약(간편고지)")
+- 상품코드(A3756), 보종코드(85044) 등 코드 값 반드시 추출
+- 금액, 기간, 조건 등 정량적 정보를 properties에 반드시 포함
+- 면책사항, 감액기간, 지급제한, 중복수술규칙 등 클레임 관련 정보 우선 추출
+- 주계약↔종속특약 관계, 의무동시가입 관계 반드시 추출
+- 해약환급금 유형(기본형/해약환급금이 없는 유형)과 비율 추출
+- 약관 버전 코드(예: _2504)가 있으면 effective_date로 변환 (2504 → "2025-04")
+- 산출방법서의 사업비율, 적용위험률 출처 추출
+- content_type: 엔티티가 추출된 원본 콘텐츠 유형을 반드시 명시
+  - "text": 일반 텍스트/문장에서 추출
+  - "table": 표(테이블)에서 추출
+  - "list": 목록/항목에서 추출
+  - "formula": 수식/산출식에서 추출
+  - "image": 이미지/다이어그램 캡션에서 추출
+
+텍스트:
+{text}
+"""
+
+_EXTRACTION_PROMPT_WITH_HINTS = """\
+당신은 보험 도메인 지식그래프 전문 추출기입니다.
+다음 보험 약관/사업방법서/산출방법서 텍스트에서 엔티티와 관계를 추출하세요.
+
+## 엔티티 타입 & 주요 프로퍼티
+1. **product** - product_code, rider_code, coverage_amount, coverage_period, payment_period,
+   payment_frequency, waiting_period, renewal_type, age_range, underwriting_class,
+   premium_type, surrender_type, surrender_ratio, base_amount, sub_types, parent_product,
+   effective_date, document_type
+2. **coverage** - coverage_amount, claim_conditions, exclusions, duplicate_surgery_rule
+3. **condition** - icd_code, severity
+4. **regulation** - effective_date, article_number
+5. **organization**
+6. **term** - definition
+7. **document** - document_type, effective_date
+8. **actuarial** - rate_reference, expense_ratio, lapse_rate
+
+## 이미 알려진 엔티티 (동일 개체는 아래 이름 그대로 사용):
+{existing_entities}
+
+## 관계 타입
+covers, includes, excludes, requires, depends_on, regulates, belongs_to,
+references, provides, defines, diagnoses, pays, renews_as, supersedes,
+must_coexist, converts_to
+
+## 출력: 유효한 JSON만 반환
+{{
+  "entities": [{{"name":"","type":"","description":"","properties":{{}}}}],
+  "relationships": [{{"source":"","target":"","type":"","description":""}}]
+}}
 
 텍스트:
 {text}
 """
 
 
+_ALLOWED_PROPERTIES = (
+    # product
+    "product_code", "rider_code", "coverage_amount", "coverage_period",
+    "payment_period", "payment_frequency", "waiting_period", "renewal_type",
+    "age_range", "underwriting_class", "premium_type", "surrender_type",
+    "surrender_ratio", "base_amount", "sub_types", "parent_product",
+    "effective_date", "document_type",
+    # coverage
+    "claim_conditions", "exclusions", "duplicate_surgery_rule",
+    # condition
+    "icd_code", "severity",
+    # regulation
+    "article_number",
+    # term
+    "definition",
+    # actuarial
+    "rate_reference", "expense_ratio", "lapse_rate",
+    # common
+    "premium_exemption", "mandatory_riders", "conversion_period", "revival_period",
+    # content origin
+    "content_type",  # text | table | image | formula | list | diagram
+)
+
+
 def _slugify(name: str) -> str:
-    """Convert an entity name into a stable, filesystem-safe identifier.
-
-    Args:
-        name: Human-readable entity name.
-
-    Returns:
-        Lowercase slug with non-alphanumeric characters replaced by
-        underscores and consecutive underscores collapsed.
-    """
     slug = name.lower().strip()
     slug = re.sub(r"[^\w가-힣]", "_", slug)
     slug = re.sub(r"_+", "_", slug).strip("_")
@@ -81,17 +199,6 @@ def _slugify(name: str) -> str:
 
 
 def _split_text(text: str, chunk_size: int = _CHUNK_SIZE) -> list[str]:
-    """Split *text* into passages of at most *chunk_size* characters.
-
-    Splits preferably on blank lines so that paragraphs are kept intact.
-
-    Args:
-        text: Document text to split.
-        chunk_size: Maximum characters per passage.
-
-    Returns:
-        List of non-empty text passages.
-    """
     paragraphs = re.split(r"\n{2,}", text)
     chunks: list[str] = []
     current_parts: list[str] = []
@@ -115,18 +222,6 @@ def _split_text(text: str, chunk_size: int = _CHUNK_SIZE) -> list[str]:
 
 
 def _parse_extraction_response(raw: str) -> dict[str, Any]:
-    """Parse the LLM extraction JSON response defensively.
-
-    Strips markdown code fences if present, then attempts ``json.loads``.
-    Returns an empty structure on any parse failure so callers never crash.
-
-    Args:
-        raw: Raw LLM response string.
-
-    Returns:
-        Dict with ``entities`` and ``relationships`` lists.
-    """
-    # Strip ```json ... ``` fences
     text = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`")
     try:
         data = json.loads(text)
@@ -135,7 +230,6 @@ def _parse_extraction_response(raw: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Try to extract JSON object from inside the string
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
@@ -143,17 +237,21 @@ def _parse_extraction_response(raw: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    logger.debug("_parse_extraction_response: could not parse response: %.200s", raw)
+    logger.debug("_parse_extraction_response: could not parse: %.200s", raw)
     return {"entities": [], "relationships": []}
 
 
-class GraphExtractor:
-    """LLM-powered entity and relationship extractor that populates a GraphStore.
+def _extract_wikilinks(text: str) -> list[str]:
+    return [m.group(1) for m in re.finditer(r"\[\[([^\]]+)\]\]", text)]
 
-    Args:
-        graph_store: Target :class:`~backend.graph.store.GraphStore` to populate.
-        model: OpenAI model name.  Defaults to the ``vlm_model`` setting.
-    """
+
+def _extract_source_doc_name(source_path: str) -> str:
+    """출처 문서명 추출 (경로에서 파일명만)."""
+    return Path(source_path).stem
+
+
+class GraphExtractor:
+    """보험 도메인 특화 지식그래프 엔티티/관계 추출기."""
 
     def __init__(
         self,
@@ -162,19 +260,27 @@ class GraphExtractor:
     ) -> None:
         self._store = graph_store
         self._model = model or settings.vlm_model
-        self._llm: Any = None  # Lazy-init to avoid import cost at module load
+        self._llm: Any = None
+        self._use_wrapper = settings.vlm_provider == "claude_wrapper"
+        self._http_client: httpx.AsyncClient | None = None
 
     def _get_llm(self) -> Any:
-        """Lazily initialise and return the ChatOpenAI client."""
         if self._llm is None:
-            from langchain_openai import ChatOpenAI  # noqa: PLC0415
-
+            from langchain_openai import ChatOpenAI
             self._llm = ChatOpenAI(
                 model=self._model,
                 api_key=settings.openai_api_key,
                 temperature=0,
             )
         return self._llm
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                base_url=settings.claude_wrapper_url,
+                timeout=httpx.Timeout(300.0, connect=10.0),
+            )
+        return self._http_client
 
     # ------------------------------------------------------------------
     # Public API
@@ -185,22 +291,6 @@ class GraphExtractor:
         text: str,
         source_path: str,
     ) -> tuple[list[Entity], list[Relationship]]:
-        """Extract entities and relationships from *text* and store them.
-
-        The text is split into passages of at most :data:`_CHUNK_SIZE`
-        characters; each passage is sent to the LLM independently and the
-        results are merged before writing to the graph store.
-
-        Args:
-            text: Raw document text (Markdown or plain).
-            source_path: Vault-relative path of the source document, used to
-                annotate entity ``source_paths`` and relationship
-                ``source_path``.
-
-        Returns:
-            Tuple of (entities, relationships) extracted from the document.
-            These are also persisted to the graph store.
-        """
         passages = _split_text(text)
         sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
@@ -218,7 +308,6 @@ class GraphExtractor:
             all_entities.extend(ents)
             all_relationships.extend(rels)
 
-        # Persist to store
         for entity in all_entities:
             self._store.add_entity(entity)
         for rel in all_relationships:
@@ -226,47 +315,100 @@ class GraphExtractor:
 
         logger.info(
             "GraphExtractor: %s → %d entities, %d relationships",
-            source_path,
-            len(all_entities),
-            len(all_relationships),
+            source_path, len(all_entities), len(all_relationships),
         )
         return all_entities, all_relationships
 
+    async def extract_from_document(
+        self,
+        content: str,
+        source_path: str,
+        existing_entities: list[str] | None = None,
+    ) -> tuple[list[Entity], list[Relationship]]:
+        """단일 문서에서 엔티티/관계 추출 (기존 엔티티 힌트 포함)."""
+        passages = _split_text(content)
+        sem = asyncio.Semaphore(_MAX_CONCURRENCY)
+
+        async def _extract_passage(passage: str) -> dict[str, Any]:
+            async with sem:
+                return await self._call_llm(passage, existing_entities=existing_entities)
+
+        raw_results = await asyncio.gather(*[_extract_passage(p) for p in passages])
+
+        all_entities: list[Entity] = []
+        all_relationships: list[Relationship] = []
+
+        for result in raw_results:
+            ents, rels = self._build_graph_objects(result, source_path)
+            all_entities.extend(ents)
+            all_relationships.extend(rels)
+
+        logger.info(
+            "extract_from_document: %s → %d entities, %d rels",
+            source_path, len(all_entities), len(all_relationships),
+        )
+        return all_entities, all_relationships
+
+    async def extract_from_wikilinks(
+        self,
+        content: str,
+        source_path: str,
+    ) -> list[Relationship]:
+        """[[위키링크]]에서 문서 간 구조적 참조 관계 추출."""
+        links = _extract_wikilinks(content)
+        if not links:
+            return []
+
+        source_name = _extract_source_doc_name(source_path)
+        source_id = _slugify(source_name)
+
+        source_entity = Entity(
+            id=source_id,
+            name=source_name,
+            entity_type="document",
+            properties={"source_document": source_path},
+            source_paths=[source_path],
+            mentions=1,
+        )
+        self._store.add_entity(source_entity)
+
+        relationships: list[Relationship] = []
+        for link in links:
+            target_id = _slugify(link)
+            target_entity = Entity(
+                id=target_id,
+                name=link,
+                entity_type="document",
+                source_paths=[source_path],
+                mentions=1,
+            )
+            self._store.add_entity(target_entity)
+
+            rel = Relationship(
+                source_id=source_id,
+                target_id=target_id,
+                relation_type="references",
+                properties={"via": "wikilink"},
+                source_path=source_path,
+                weight=1.0,
+            )
+            relationships.append(rel)
+
+        return relationships
+
     async def extract_from_file(self, file_path: Path, rel_path: str) -> tuple[list[Entity], list[Relationship]]:
-        """Read a Markdown file and extract its entities/relationships.
-
-        Args:
-            file_path: Absolute filesystem path to the document.
-            rel_path: Vault-relative path (used as the source_path annotation).
-
-        Returns:
-            Tuple of (entities, relationships).
-        """
         content = await asyncio.to_thread(file_path.read_text, "utf-8")
         return await self.extract_from_text(content, rel_path)
 
     async def build_from_vault(self, vault_root: Path) -> dict[str, Any]:
-        """Extract entities from all Markdown files under *vault_root*.
-
-        After extraction, Louvain community detection is run and the
-        resulting community assignments are saved back to the store.
-
-        Args:
-            vault_root: Absolute path to the vault root directory.
-
-        Returns:
-            Summary dict with ``files``, ``entities``, ``relationships``,
-            ``communities``, and ``errors`` counts.
-        """
         md_files = list(vault_root.rglob("*.md"))
-        logger.info("GraphExtractor.build_from_vault: %d files found", len(md_files))
+        logger.info("build_from_vault: %d files found", len(md_files))
 
         self._store.clear()
 
         total_entities = 0
         total_rels = 0
         errors: list[str] = []
-
         sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
         async def _process(md_file: Path) -> tuple[int, int, str | None]:
@@ -275,8 +417,8 @@ class GraphExtractor:
                 try:
                     ents, rels = await self.extract_from_file(md_file, rel_path)
                     return len(ents), len(rels), None
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("GraphExtractor: error on %s: %s", rel_path, exc)
+                except Exception as exc:
+                    logger.error("error on %s: %s", rel_path, exc)
                     return 0, 0, f"{rel_path}: {exc}"
 
         results = await asyncio.gather(*[_process(f) for f in md_files])
@@ -286,44 +428,74 @@ class GraphExtractor:
             if err:
                 errors.append(err)
 
-        # Detect and save communities
         communities = self._store.get_communities()
-        for community in communities:
-            pass  # Communities are computed on-the-fly from the graph, no need to store separately
-
         self._store.save()
 
-        summary = {
+        return {
             "files": len(md_files),
             "entities": total_entities,
             "relationships": total_rels,
             "communities": len(communities),
             "errors": errors,
         }
-        logger.info("GraphExtractor.build_from_vault complete: %s", summary)
-        return summary
+
+    async def close(self) -> None:
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _call_llm(self, text: str) -> dict[str, Any]:
-        """Send *text* to the LLM and return the parsed extraction result.
+    async def _call_llm(
+        self,
+        text: str,
+        existing_entities: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if existing_entities:
+            hint = ", ".join(existing_entities[:100])
+            prompt = _EXTRACTION_PROMPT_WITH_HINTS.format(text=text, existing_entities=hint)
+        else:
+            prompt = _EXTRACTION_PROMPT.format(text=text)
 
-        Args:
-            text: Passage text to process.
+        if self._use_wrapper:
+            return await self._call_claude_wrapper(prompt)
+        else:
+            return await self._call_openai(prompt)
 
-        Returns:
-            Parsed dict with ``entities`` and ``relationships`` keys.
-        """
+    async def _call_claude_wrapper(self, prompt: str) -> dict[str, Any]:
+        client = self._get_http_client()
+        payload = {
+            "prompt": prompt,
+            "systemPrompt": (
+                "당신은 보험 약관 지식그래프 엔티티 추출 전문가입니다. "
+                "보험 상품설계, 상담, 클레임, 언더라이팅에 필요한 정보를 정확하게 추출합니다. "
+                "반드시 요청된 JSON 형식으로만 응답하세요."
+            ),
+            "allowedTools": [],
+            "disallowedTools": ["Bash", "Edit", "Write", "WebSearch", "WebFetch"],
+        }
+        try:
+            response = await client.post("/api/claude", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return _parse_extraction_response(data.get("result", ""))
+        except httpx.TimeoutException:
+            logger.error("Claude wrapper timeout")
+            return {"entities": [], "relationships": []}
+        except Exception as exc:
+            logger.error("Claude wrapper call failed: %s", exc)
+            return {"entities": [], "relationships": []}
+
+    async def _call_openai(self, prompt: str) -> dict[str, Any]:
         llm = self._get_llm()
-        prompt = _EXTRACTION_PROMPT.format(text=text)
         try:
             response = await llm.ainvoke([{"role": "user", "content": prompt}])
             raw = response.content if hasattr(response, "content") else str(response)
             return _parse_extraction_response(raw)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("GraphExtractor._call_llm failed: %s", exc)
+        except Exception as exc:
+            logger.error("OpenAI call failed: %s", exc)
             return {"entities": [], "relationships": []}
 
     def _build_graph_objects(
@@ -331,21 +503,11 @@ class GraphExtractor:
         extraction: dict[str, Any],
         source_path: str,
     ) -> tuple[list[Entity], list[Relationship]]:
-        """Convert raw LLM extraction dicts into Entity and Relationship objects.
-
-        Args:
-            extraction: Parsed LLM response with ``entities`` and
-                ``relationships`` lists.
-            source_path: Vault-relative path to annotate objects with.
-
-        Returns:
-            Tuple of (entities, relationships).
-        """
         entities: list[Entity] = []
         relationships: list[Relationship] = []
-
-        # Build entity lookup by name for relationship resolution
         name_to_id: dict[str, str] = {}
+
+        source_doc_name = _extract_source_doc_name(source_path)
 
         for e_dict in extraction.get("entities", []):
             name = str(e_dict.get("name", "")).strip()
@@ -355,11 +517,26 @@ class GraphExtractor:
             entity_type = str(e_dict.get("type", "concept")).lower()
             description = str(e_dict.get("description", ""))
 
+            # 보험 도메인 프로퍼티 수집
+            props: dict[str, Any] = {}
+            if description:
+                props["description"] = description
+            # 출처 문서명 항상 기록
+            props["source_document"] = source_doc_name
+
+            # LLM이 추출한 구조화된 프로퍼티 병합
+            raw_props = e_dict.get("properties", {})
+            if isinstance(raw_props, dict):
+                for key in _ALLOWED_PROPERTIES:
+                    val = raw_props.get(key)
+                    if val:
+                        props[key] = val
+
             entity = Entity(
                 id=entity_id,
                 name=name,
                 entity_type=entity_type,
-                properties={"description": description} if description else {},
+                properties=props,
                 source_paths=[source_path],
                 mentions=1,
             )
@@ -374,7 +551,6 @@ class GraphExtractor:
             if not src_name or not tgt_name:
                 continue
 
-            # Resolve entity IDs — fall back to slugifying the name
             src_id = name_to_id.get(src_name.lower(), _slugify(src_name))
             tgt_id = name_to_id.get(tgt_name.lower(), _slugify(tgt_name))
 
@@ -382,7 +558,10 @@ class GraphExtractor:
                 source_id=src_id,
                 target_id=tgt_id,
                 relation_type=rel_type,
-                properties={"description": str(r_dict.get("description", ""))},
+                properties={
+                    "description": str(r_dict.get("description", "")),
+                    "source_document": source_doc_name,
+                },
                 source_path=source_path,
                 weight=1.0,
             )
@@ -399,17 +578,9 @@ _extractor: GraphExtractor | None = None
 
 
 def get_graph_extractor() -> GraphExtractor:
-    """Return (and lazily initialise) the module-level GraphExtractor singleton.
-
-    Uses the module-level :class:`GraphStore` singleton as the target store.
-
-    Returns:
-        The singleton :class:`GraphExtractor` instance.
-    """
     global _extractor
     if _extractor is None:
-        from backend.graph.store import GraphStore  # noqa: PLC0415 – lazy import
-
+        from backend.graph.store import GraphStore
         _store = GraphStore()
         _extractor = GraphExtractor(graph_store=_store)
     return _extractor

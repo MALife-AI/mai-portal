@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from backend.agents.skill_parser import SkillRegistry
 from backend.security.prompt_guard import sanitize_input
@@ -20,7 +20,7 @@ _MAX_RETRIES = 2
 _RETRY_BACKOFF_BASE = 1.0  # seconds; doubled on each retry
 
 
-async def route_node(state: dict, llm: ChatOpenAI, registry: SkillRegistry) -> dict:
+async def route_node(state: dict, llm: BaseChatModel, registry: SkillRegistry) -> dict:
     """사용자 의도를 파악하고 필요한 스킬을 식별.
 
     Runs prompt injection detection on the latest user message before forwarding
@@ -104,7 +104,7 @@ def _topological_sort(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [name_to_node[name] for name in sorted_names]
 
 
-async def plan_node(state: dict, llm: ChatOpenAI, registry: SkillRegistry) -> dict:
+async def plan_node(state: dict, llm: BaseChatModel, registry: SkillRegistry) -> dict:
     """의존성 그래프를 해석하여 실행 계획을 수립.
 
     Parses the LLM reasoning JSON, resolves each skill via the registry (which
@@ -312,7 +312,7 @@ async def audit_node(state: dict) -> dict:
     return state
 
 
-async def respond_node(state: dict, llm: ChatOpenAI) -> dict:
+async def respond_node(state: dict, llm: BaseChatModel) -> dict:
     """실행 결과를 자연어 응답으로 변환.
 
     When failures are present in the execution log this node builds a

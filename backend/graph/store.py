@@ -405,13 +405,10 @@ class GraphStore:
     # ------------------------------------------------------------------
 
     def to_visualization_data(self) -> dict[str, Any]:
-        """Return a frontend-ready representation of the entire graph.
+        """Return a lightweight frontend-ready representation of the graph.
 
-        Returns:
-            Dict with keys:
-            - ``nodes``: list of node dicts (id, name, type, mentions, ...).
-            - ``edges``: list of edge dicts (source, target, type, weight, ...).
-            - ``communities``: list of community dicts.
+        Properties and source_paths are omitted to keep the payload small.
+        Use the entity detail API for full property access.
         """
         nodes = [
             {
@@ -419,8 +416,6 @@ class GraphStore:
                 "name": data.get("name", node_id),
                 "type": data.get("entity_type", "concept"),
                 "mentions": data.get("mentions", 0),
-                "source_paths": data.get("source_paths", []),
-                "properties": data.get("properties", {}),
             }
             for node_id, data in self._graph.nodes(data=True)
         ]
@@ -431,8 +426,6 @@ class GraphStore:
                 "target": v,
                 "type": data.get("relation_type", ""),
                 "weight": data.get("weight", 1.0),
-                "source_path": data.get("source_path", ""),
-                "properties": data.get("properties", {}),
             }
             for u, v, data in self._graph.edges(data=True)
         ]

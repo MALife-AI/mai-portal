@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import ForceGraph2D, { type NodeObject, type LinkObject } from 'react-force-graph-2d'
+import ForceGraph3D from 'react-force-graph-3d'
 import {
   Search,
   RefreshCw,
@@ -14,6 +15,8 @@ import {
   Users,
   Layers,
   ZoomIn,
+  Box,
+  Square,
 } from 'lucide-react'
 import {
   graphApi,
@@ -30,16 +33,34 @@ import { cn } from '@/lib/utils'
 
 const ENTITY_COLORS: Record<string, string> = {
   product: '#F37021',
+  coverage: '#FF6B6B',
+  condition: '#E74C3C',
   person: '#4A90D9',
   organization: '#34C759',
   org: '#34C759',
   regulation: '#F5A623',
   concept: '#8da0b8',
   document: '#6BAAE8',
+  term: '#9B59B6',
+  actuarial: '#1ABC9C',
 }
 
-function entityColor(type: string): string {
+function entityColor(type: string | undefined): string {
+  if (!type) return '#8da0b8'
   return ENTITY_COLORS[type.toLowerCase()] ?? '#8da0b8'
+}
+
+const COMMUNITY_PALETTE = [
+  '#F37021', '#4A90D9', '#34C759', '#F5A623', '#9B59B6',
+  '#E74C3C', '#1ABC9C', '#FF6B6B', '#3498DB', '#2ECC71',
+  '#E67E22', '#8E44AD', '#16A085', '#D35400', '#2980B9',
+  '#27AE60', '#C0392B', '#7F8C8D', '#F39C12', '#1F77B4',
+]
+
+function communityColor(communityId: string | undefined): string {
+  if (!communityId) return '#8da0b8'
+  const idx = parseInt(communityId.replace('community_', ''), 10)
+  return COMMUNITY_PALETTE[idx % COMMUNITY_PALETTE.length] ?? '#8da0b8'
 }
 
 // ─── Internal graph types ─────────────────────────────────────────────────────
@@ -66,7 +87,45 @@ interface InternalGraphData {
   links: GraphLink[]
 }
 
-const ENTITY_TYPES = ['all', 'product', 'person', 'organization', 'regulation', 'concept', 'document']
+const ENTITY_TYPES = ['all', 'product', 'coverage', 'condition', 'person', 'organization', 'regulation', 'concept', 'document', 'term', 'actuarial']
+
+const PROP_LABELS: Record<string, string> = {
+  product_code: '상품코드',
+  rider_code: '보종코드',
+  coverage_amount: '보장금액',
+  coverage_period: '보장기간',
+  payment_period: '납입기간',
+  payment_frequency: '납입주기',
+  waiting_period: '면책기간',
+  renewal_type: '갱신유형',
+  age_range: '가입연령',
+  underwriting_class: '심사등급',
+  premium_type: '보험료유형',
+  surrender_type: '환급유형',
+  surrender_ratio: '환급비율',
+  base_amount: '기준가입금액',
+  sub_types: '세부유형',
+  parent_product: '주계약',
+  claim_conditions: '지급조건',
+  exclusions: '면책사항',
+  duplicate_surgery_rule: '중복수술규칙',
+  effective_date: '시행일',
+  document_type: '문서유형',
+  icd_code: '질병코드',
+  severity: '중증도',
+  article_number: '조항번호',
+  definition: '정의',
+  rate_reference: '위험률출처',
+  expense_ratio: '사업비율',
+  lapse_rate: '해지율',
+  mandatory_riders: '의무동시가입',
+  conversion_period: '전환가능기간',
+  revival_period: '부활기간',
+  premium_exemption: '납입면제',
+  source_document: '출처문서',
+  content_type: '콘텐츠유형',
+  description: '설명',
+}
 
 const RAG_MODES = [
   { value: 'local', label: '로컬' },
@@ -80,7 +139,8 @@ function nodeSize(mentions: number): number {
   return Math.max(4, Math.min(20, 4 + Math.sqrt(mentions) * 2))
 }
 
-function edgeColor(type: string): string {
+function edgeColor(type: string | undefined): string {
+  if (!type) return 'rgba(141,160,184,0.35)'
   const palette: Record<string, string> = {
     mentions: 'rgba(243,112,33,0.5)',
     related_to: 'rgba(74,144,217,0.45)',
@@ -153,7 +213,7 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
     neighbors: GraphEntity[]
     relationships: import('@/api/client').GraphRelationship[]
   } | null>(null)
-  const [communities, setCommunities] = useState<GraphCommunity[]>([])
+  const [communities] = useState<GraphCommunity[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
@@ -162,10 +222,9 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
       return
     }
     setIsLoading(true)
-    Promise.all([graphApi.getEntity(entityId), graphApi.getCommunities()])
-      .then(([entityData, communityData]) => {
+    graphApi.getEntity(entityId)
+      .then((entityData) => {
         setData(entityData)
-        setCommunities(communityData)
       })
       .catch((err) => console.error('Entity fetch error:', err))
       .finally(() => setIsLoading(false))
@@ -174,8 +233,9 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
   if (!entityId) return null
 
   const entity = data?.entity
+  const communityList = Array.isArray(communities) ? communities : []
   const entityCommunity = entity?.id
-    ? communities.find((c) => c.entity_ids.includes(entity.id))
+    ? communityList.find((c) => c.entity_ids?.includes(entity.id))
     : undefined
 
   return (
@@ -232,9 +292,9 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
                 속성
               </p>
               <div className="space-y-1">
-                {Object.entries(entity.properties).slice(0, 8).map(([k, v]) => (
+                {Object.entries(entity.properties).map(([k, v]) => (
                   <div key={k} className="flex gap-2 text-xs">
-                    <span className="font-mono text-surface-600 shrink-0">{k}:</span>
+                    <span className="font-mono text-surface-600 shrink-0">{PROP_LABELS[k] ?? k}:</span>
                     <span className="text-surface-800 break-all">{String(v)}</span>
                   </div>
                 ))}
@@ -500,6 +560,8 @@ export default function KnowledgeGraph() {
 
   // Subgraph mode: null = full graph, string = entity id
   const [subgraphEntityId, setSubgraphEntityId] = useState<string | null>(null)
+  const [is3D, setIs3D] = useState(false)
+  const [colorBy, setColorBy] = useState<'type' | 'community'>('type')
   const [subgraphData, setSubgraphData] = useState<GraphVisualizationData | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
@@ -592,16 +654,29 @@ export default function KnowledgeGraph() {
 
   // ── Derived force-graph data ───────────────────────────────────────────────
 
+  // 커뮤니티 → 노드 매핑
+  const nodeCommunityMap = useMemo(() => {
+    const map = new Map<string, string>()
+    if (!activeVizData?.communities) return map
+    for (const c of activeVizData.communities) {
+      for (const eid of c.entity_ids ?? []) {
+        map.set(eid, c.id)
+      }
+    }
+    return map
+  }, [activeVizData])
+
   const forceData = useMemo((): InternalGraphData => {
     if (!activeVizData) return { nodes: [], links: [] }
 
     const filteredNodes = activeVizData.nodes.filter((n) =>
-      typeFilter === 'all' ? true : n.type.toLowerCase() === typeFilter,
+      typeFilter === 'all' ? true : (n.type ?? '').toLowerCase() === typeFilter,
     )
     const nodeIdSet = new Set(filteredNodes.map((n) => n.id))
 
     const nodes: GraphNode[] = filteredNodes.map((n) => ({
       ...n,
+      community: nodeCommunityMap.get(n.id),
       highlighted: n.id === highlightId,
     }))
 
@@ -627,7 +702,9 @@ export default function KnowledgeGraph() {
     (node: NodeObject, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const n = node as GraphNode
       const size = nodeSize(n.mentions ?? 1)
-      const color = entityColor(n.type ?? '')
+      const color = colorBy === 'community'
+        ? communityColor(n.community)
+        : entityColor(n.type ?? '')
       const isSelected = n.id === selectedNodeId
       const isHighlighted = n.highlighted
 
@@ -660,7 +737,7 @@ export default function KnowledgeGraph() {
         ctx.fillText(label, n.x ?? 0, (n.y ?? 0) + size + 2 / globalScale)
       }
     },
-    [selectedNodeId],
+    [selectedNodeId, colorBy],
   )
 
   // ── Link canvas painter ────────────────────────────────────────────────────
@@ -765,6 +842,32 @@ export default function KnowledgeGraph() {
           </div>
         )}
 
+        {/* 클러스터 기준 */}
+        <select
+          value={colorBy}
+          onChange={(e) => setColorBy(e.target.value as 'type' | 'community')}
+          className="input-field text-xs py-1.5 px-2"
+          style={{ width: 'auto', minWidth: 0 }}
+        >
+          <option value="type">엔티티 타입별</option>
+          <option value="community">커뮤니티별</option>
+        </select>
+
+        {/* 2D/3D 토글 */}
+        <button
+          onClick={() => setIs3D((v) => !v)}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono transition-colors',
+            is3D
+              ? 'bg-gold-500/15 text-gold-500 border border-gold-500/30'
+              : 'btn-secondary',
+          )}
+          title={is3D ? '2D로 전환' : '3D로 전환'}
+        >
+          {is3D ? <Box size={13} /> : <Square size={13} />}
+          {is3D ? '3D' : '2D'}
+        </button>
+
         <div className="flex-1" />
 
         {/* Stats */}
@@ -837,6 +940,8 @@ export default function KnowledgeGraph() {
               paintLink={paintLink}
               onNodeClick={(node) => setSelectedNodeId((node as GraphNode).id)}
               onNodeHover={handleNodeHover}
+              is3D={is3D}
+              colorBy={colorBy}
             />
           )}
 
@@ -956,7 +1061,7 @@ export default function KnowledgeGraph() {
   )
 }
 
-// ─── GraphCanvas wrapper (isolates ForceGraph2D sizing) ───────────────────────
+// ─── GraphCanvas wrapper (2D/3D 전환 지원) ──────────────────────────────────
 
 interface GraphCanvasProps {
   data: InternalGraphData
@@ -964,9 +1069,11 @@ interface GraphCanvasProps {
   paintLink: (link: LinkObject, ctx: CanvasRenderingContext2D) => void
   onNodeClick: (node: NodeObject) => void
   onNodeHover: (node: NodeObject | null) => void
+  is3D?: boolean
+  colorBy?: 'type' | 'community'
 }
 
-function GraphCanvas({ data, paintNode, paintLink, onNodeClick, onNodeHover }: GraphCanvasProps) {
+function GraphCanvas({ data, paintNode, paintLink, onNodeClick, onNodeHover, is3D = false, colorBy = 'type' }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
 
@@ -986,6 +1093,38 @@ function GraphCanvas({ data, paintNode, paintLink, onNodeClick, onNodeHover }: G
     setDimensions({ width: el.clientWidth, height: el.clientHeight })
     return () => obs.disconnect()
   }, [])
+
+  if (is3D) {
+    return (
+      <div ref={containerRef} className="w-full h-full">
+        <ForceGraph3D
+          graphData={data}
+          width={dimensions.width}
+          height={dimensions.height}
+          onNodeClick={onNodeClick}
+          onNodeHover={onNodeHover}
+          nodeLabel={(node) => (node as GraphNode).name ?? ''}
+          nodeColor={(node) => {
+            const n = node as GraphNode
+            return colorBy === 'community'
+              ? communityColor(n.community)
+              : entityColor(n.type ?? '')
+          }}
+          nodeVal={(node) => nodeSize((node as GraphNode).mentions ?? 1)}
+          nodeOpacity={0.9}
+          linkDirectionalArrowLength={4}
+          linkDirectionalArrowRelPos={1}
+          linkColor={(link) => edgeColor((link as GraphLink).type ?? '')}
+          linkWidth={(link) => Math.max(0.5, ((link as GraphLink).weight ?? 1) * 0.8)}
+          linkOpacity={0.6}
+          backgroundColor="#0d1117"
+          cooldownTicks={120}
+          d3AlphaDecay={0.02}
+          d3VelocityDecay={0.3}
+        />
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="w-full h-full">
