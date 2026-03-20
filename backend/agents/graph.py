@@ -21,7 +21,7 @@ from typing import Annotated, Any, TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 
 from backend.config import settings
 from backend.agents.skill_parser import SkillRegistry
@@ -193,10 +193,7 @@ async def get_compiled_graph(skill_registry: SkillRegistry):
         return _compiled_graph_cache[cache_key]
 
     graph = await build_graph(skill_registry)
-    settings.sqlite_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    checkpointer = AsyncSqliteSaver.from_conn_string(
-        str(settings.sqlite_checkpoint_path)
-    )
+    checkpointer = MemorySaver()
     compiled = graph.compile(checkpointer=checkpointer)
     _compiled_graph_cache[cache_key] = compiled
     return compiled
@@ -238,34 +235,138 @@ async def invoke_agent(
     }
 
 
+async def invoke_agent_stream(
+    query: str,
+    user_id: str,
+    user_roles: list[str],
+    skill_registry: SkillRegistry,
+    thread_id: str | None = None,
+):
+    """스트리밍 에이전트 실행 — SSE 이벤트 dict를 yield."""
+    from backend.agents.llm_factory import create_chat_llm
+    from backend.agents.nodes import (
+        route_node, plan_node, execute_skill_node,
+        audit_node, should_continue, build_respond_messages,
+    )
+
+    llm = create_chat_llm()
+    _thread_id = thread_id or f"{user_id}-{datetime.now(timezone.utc).isoformat()}"
+
+    state: dict[str, Any] = {
+        "messages": [HumanMessage(content=query)],
+        "user_id": user_id,
+        "user_roles": user_roles,
+        "plan": [],
+        "execution_log": [],
+        "current_step": 0,
+        "reasoning": "",
+        "error": None,
+    }
+
+    # ── 파이프라인 수동 실행 (respond 제외) ──────────────────────────
+    state = await route_node(state, llm, skill_registry)
+    state = await _guard_node(state, skill_registry)
+
+    if not state.get("error"):
+        state = await plan_node(state, llm, skill_registry)
+        while should_continue(state) == "continue":
+            state = await execute_skill_node(state, skill_registry)
+
+    state = await audit_node(state)
+
+    # ── GraphRAG 쿼리 기반 출처 검색 ─────────────────────────────────
+    source_nodes: list[dict[str, Any]] = []
+    graph_context: str = ""
+    try:
+        from backend.graph.store import GraphStore
+        from backend.graph.graphrag import GraphRAGEngine
+        from backend.core.iam import IAMEngine
+        from backend.config import settings as _settings
+
+        persist_path = _settings.vault_root / ".graph" / "knowledge_graph.json"
+        store = GraphStore(persist_path=persist_path)
+        iam = IAMEngine(_settings.vault_root / "iam.yaml")
+        engine = GraphRAGEngine(graph_store=store, iam_engine=iam)
+
+        rag_result = await engine.search(
+            query=query,
+            user_id=user_id,
+            user_roles=user_roles,
+            mode="hybrid",
+            n_results=5,
+        )
+
+        # 매칭된 엔티티 → 출처 노드
+        seen_ids: set[str] = set()
+        for e in rag_result.matched_entities + rag_result.related_entities:
+            eid = e.get("id") or e.get("name", "")
+            if eid in seen_ids:
+                continue
+            seen_ids.add(eid)
+            props = e.get("properties", {})
+            source_nodes.append({
+                "id": eid,
+                "name": e.get("name", ""),
+                "type": e.get("entity_type", ""),
+                "description": props.get("description", ""),
+                "source_titles": [
+                    p.split("/")[-1].replace(".md", "")
+                    for p in e.get("source_paths", [])
+                ],
+                "page_start": props.get("page_start"),
+                "page_end": props.get("page_end"),
+            })
+            if len(source_nodes) >= 5:
+                break
+
+        # GraphRAG 컨텍스트를 LLM 프롬프트에 주입
+        graph_context = rag_result.combined_context or ""
+    except Exception:
+        logger.debug("GraphRAG search failed (non-fatal)", exc_info=True)
+
+    yield {
+        "type": "metadata",
+        "thread_id": _thread_id,
+        "execution_log": state.get("execution_log", []),
+        "reasoning": state.get("reasoning", ""),
+        "source_nodes": source_nodes,
+    }
+
+    # ── LLM 응답 스트리밍 (GraphRAG 컨텍스트 주입) ──────────────────
+    messages = build_respond_messages(state)
+    if graph_context:
+        messages.insert(-1, {
+            "role": "system",
+            "content": (
+                "다음은 지식그래프에서 검색된 관련 컨텍스트입니다. "
+                "이 정보를 우선적으로 참고하여 답변하세요:\n\n"
+                f"{graph_context[:3000]}"
+            ),
+        })
+    async for chunk in llm.astream(messages):
+        content = chunk.content if hasattr(chunk, "content") else str(chunk)
+        if content:
+            yield {"type": "token", "content": content}
+
+    yield {"type": "done"}
+
+
 async def get_thread_history(thread_id: str) -> list[dict[str, Any]]:
-    """Retrieve the full conversation history for *thread_id* from the checkpointer.
-
-    Each item in the returned list represents one LangGraph checkpoint state
-    and contains:
-
-    * ``checkpoint_id`` – unique identifier for this checkpoint snapshot.
-    * ``messages`` – list of ``{"role": ..., "content": ...}`` dicts derived
-      from the serialised LangChain message objects.
-    * ``execution_log`` – skill execution records captured in that state.
-    * ``reasoning`` – LLM reasoning string from that state.
-    * ``error`` – error string if the step ended in failure, else ``None``.
-
-    Args:
-        thread_id: The thread identifier used when calling :func:`invoke_agent`.
+    """Retrieve the full conversation history for *thread_id* from the cached checkpointer.
 
     Returns:
         Ordered list of checkpoint dicts (oldest first).  Returns an empty
-        list if the thread is not found or the DB does not exist.
+        list if the thread is not found.
     """
-    db_path = settings.sqlite_checkpoint_path
-    if not db_path.exists():
-        logger.warning("get_thread_history: checkpoint DB not found at %s", db_path)
+    # Find the cached compiled graph's checkpointer
+    if not _compiled_graph_cache:
         return []
 
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver  # noqa: PLC0415
+    compiled = next(iter(_compiled_graph_cache.values()))
+    checkpointer = getattr(compiled, "checkpointer", None)
+    if checkpointer is None:
+        return []
 
-    checkpointer = AsyncSqliteSaver.from_conn_string(str(db_path))
     config = {"configurable": {"thread_id": thread_id}}
 
     history: list[dict[str, Any]] = []
@@ -274,7 +375,6 @@ async def get_thread_history(thread_id: str) -> list[dict[str, Any]]:
             state = checkpoint_tuple.checkpoint.get("channel_values", {})
             raw_messages = state.get("messages", [])
 
-            # Normalise messages to plain dicts regardless of LangChain type
             serialised_messages: list[dict[str, Any]] = []
             for msg in raw_messages:
                 if hasattr(msg, "type") and hasattr(msg, "content"):
@@ -294,6 +394,5 @@ async def get_thread_history(thread_id: str) -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         logger.error("get_thread_history failed for thread_id=%s: %s", thread_id, exc)
 
-    # alist returns newest-first; reverse to chronological order
     history.reverse()
     return history

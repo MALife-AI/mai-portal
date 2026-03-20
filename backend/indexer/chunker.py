@@ -115,52 +115,67 @@ def _strip_frontmatter(content: str) -> str:
 # ---------------------------------------------------------------------------
 
 _HEADING_RE = re.compile(r"^#{1,3}\s+")
+_PAGE_MARKER_RE = re.compile(r"<!--\s*page:(\d+)\s*-->")
 
 
 def _split_by_headings(body: str) -> list[Chunk]:
     """Split *body* into sections at H1/H2/H3 boundaries.
 
-    Tables that straddle a heading boundary are not possible in well-formed
-    markdown, so we do not need special handling here — table preservation
-    is only needed during sub-splitting of oversized sections.
-
-    Args:
-        body: Markdown text without frontmatter.
-
-    Returns:
-        List of :class:`Chunk` objects, one per heading section.
+    Tracks ``<!-- page:N -->`` markers to record page numbers in chunk
+    metadata.
     """
     lines = body.split("\n")
     chunks: list[Chunk] = []
     current_heading = ""
     current_lines: list[str] = []
     start_line = 0
+    current_page: int | None = None
+    page_start: int | None = None
 
     for i, line in enumerate(lines):
+        # Track page markers
+        page_match = _PAGE_MARKER_RE.match(line.strip())
+        if page_match:
+            current_page = int(page_match.group(1))
+            if page_start is None:
+                page_start = current_page
+            continue  # don't include marker in content
+
         if _HEADING_RE.match(line):
             if current_lines:
                 text = "\n".join(current_lines).strip()
                 if text:
+                    meta: dict = {}
+                    if page_start is not None:
+                        meta["page_start"] = page_start
+                    if current_page is not None:
+                        meta["page_end"] = current_page
                     chunks.append(Chunk(
                         content=text,
                         heading=current_heading,
                         start_line=start_line,
-                        metadata={},
+                        metadata=meta,
                     ))
             current_heading = line.lstrip("#").strip()
             current_lines = [line]
             start_line = i
+            page_start = current_page
         else:
             current_lines.append(line)
 
     if current_lines:
         text = "\n".join(current_lines).strip()
         if text:
+            meta = {}
+            if page_start is not None:
+                meta["page_start"] = page_start
+            if current_page is not None:
+                meta["page_end"] = current_page
             chunks.append(Chunk(
                 content=text,
                 heading=current_heading,
                 start_line=start_line,
-                metadata={},
+                metadata=meta,
             ))
 
     return chunks

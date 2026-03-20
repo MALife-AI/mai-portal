@@ -245,6 +245,14 @@ def _extract_wikilinks(text: str) -> list[str]:
     return [m.group(1) for m in re.finditer(r"\[\[([^\]]+)\]\]", text)]
 
 
+def _extract_page_range(text: str) -> tuple[int | None, int | None]:
+    """텍스트에서 <!-- page:N --> 마커를 찾아 (시작페이지, 끝페이지) 반환."""
+    pages = [int(m.group(1)) for m in re.finditer(r"<!--\s*page:(\d+)\s*-->", text)]
+    if not pages:
+        return (None, None)
+    return (min(pages), max(pages))
+
+
 def _extract_source_doc_name(source_path: str) -> str:
     """출처 문서명 추출 (경로에서 파일명만)."""
     return Path(source_path).stem
@@ -303,8 +311,9 @@ class GraphExtractor:
         all_entities: list[Entity] = []
         all_relationships: list[Relationship] = []
 
-        for result in raw_results:
-            ents, rels = self._build_graph_objects(result, source_path)
+        for passage, result in zip(passages, raw_results):
+            page_range = _extract_page_range(passage)
+            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range)
             all_entities.extend(ents)
             all_relationships.extend(rels)
 
@@ -502,6 +511,7 @@ class GraphExtractor:
         self,
         extraction: dict[str, Any],
         source_path: str,
+        page_range: tuple[int | None, int | None] = (None, None),
     ) -> tuple[list[Entity], list[Relationship]]:
         entities: list[Entity] = []
         relationships: list[Relationship] = []
@@ -523,6 +533,12 @@ class GraphExtractor:
                 props["description"] = description
             # 출처 문서명 항상 기록
             props["source_document"] = source_doc_name
+
+            # 페이지 범위 기록
+            if page_range[0] is not None:
+                props["page_start"] = page_range[0]
+            if page_range[1] is not None:
+                props["page_end"] = page_range[1]
 
             # LLM이 추출한 구조화된 프로퍼티 병합
             raw_props = e_dict.get("properties", {})

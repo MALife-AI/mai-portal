@@ -312,23 +312,13 @@ async def audit_node(state: dict) -> dict:
     return state
 
 
-async def respond_node(state: dict, llm: BaseChatModel) -> dict:
-    """실행 결과를 자연어 응답으로 변환.
-
-    When failures are present in the execution log this node builds a
-    structured error report section that:
-
-    * Lists every failed step with its skill name and error message.
-    * Gives the user explicit actionable guidance (retry hint, permission
-      note, or injection-blocked notice).
-    * Passes the full context to the LLM so it can synthesise a natural
-      language explanation.
-    """
+def build_respond_messages(state: dict) -> list:
+    """respond 노드용 메시지 리스트 생성 (스트리밍/비스트리밍 공용)."""
     log = state.get("execution_log", [])
     error = state.get("error")
 
     # ── Build execution summary ────────────────────────────────────────────
-    summary_lines: list[str] = ["실행 결과 요약:"]
+    summary_lines: list[str] = []
     failed_steps: list[dict[str, Any]] = []
 
     for entry in log:
@@ -347,8 +337,6 @@ async def respond_node(state: dict, llm: BaseChatModel) -> dict:
             summary_lines.append(f"  Error: {entry.get('error', 'unknown error')}")
             failed_steps.append(entry)
 
-    summary = "\n".join(summary_lines)
-
     # ── Structured error report ────────────────────────────────────────────
     error_report = ""
     if failed_steps or error:
@@ -356,8 +344,6 @@ async def respond_node(state: dict, llm: BaseChatModel) -> dict:
             "",
             "=== 오류 보고서 ===",
         ]
-
-        # Prompt injection is a special case with its own user guidance
         if error and "Prompt injection" in error:
             report_lines += [
                 "보안 경고: 입력에 금지된 패턴이 감지되어 실행이 차단되었습니다.",
@@ -380,16 +366,29 @@ async def respond_node(state: dict, llm: BaseChatModel) -> dict:
                 "  3. 입력 매개변수가 올바른지 검토하세요.",
                 "  4. 문제가 지속되면 관리자에게 문의하세요.",
             ]
-
         error_report = "\n".join(report_lines)
 
-    # ── LLM synthesis ─────────────────────────────────────────────────────
-    system_content = (
-        f"다음 실행 결과를 사용자에게 자연어로 친절하게 설명하세요.\n"
-        f"오류가 있을 경우 사용자가 무엇을 해야 하는지 명확하게 안내하세요.\n\n"
-        f"{summary}{error_report}"
-    )
-    messages = state["messages"] + [{"role": "system", "content": system_content}]
+    # ── System prompt ──────────────────────────────────────────────────────
+    if summary_lines:
+        summary = "실행 결과 요약:\n" + "\n".join(summary_lines)
+        system_content = (
+            f"다음 실행 결과를 사용자에게 자연어로 친절하게 설명하세요.\n"
+            f"오류가 있을 경우 사용자가 무엇을 해야 하는지 명확하게 안내하세요.\n\n"
+            f"{summary}{error_report}"
+        )
+    else:
+        system_content = (
+            "당신은 금융/보험 도메인 전문 어시스턴트입니다. "
+            "사용자의 질문에 한국어로 정확하고 친절하게 답변하세요. "
+            "답변 마지막에 '출처: 일반 지식' 이라고 표기하세요."
+        )
+
+    return state["messages"] + [{"role": "system", "content": system_content}]
+
+
+async def respond_node(state: dict, llm: BaseChatModel) -> dict:
+    """실행 결과를 자연어 응답으로 변환."""
+    messages = build_respond_messages(state)
     response = await llm.ainvoke(messages)
 
     return {

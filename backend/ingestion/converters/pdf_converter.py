@@ -230,11 +230,13 @@ class PDFConverter:
                 f"stderr: {stderr}"
             )
 
-        # If Marker splits across multiple .md files, concatenate in order.
+        # If Marker splits across multiple .md files, concatenate in order
+        # and inject page markers for downstream page tracking.
         parts: list[str] = []
-        for md_file in md_files:
+        for page_num, md_file in enumerate(md_files, 1):
             try:
-                parts.append(md_file.read_text(encoding="utf-8"))
+                text = md_file.read_text(encoding="utf-8")
+                parts.append(f"<!-- page:{page_num} -->\n{text}")
             except OSError as exc:
                 logger.warning("Could not read Marker output %s: %s", md_file, exc)
 

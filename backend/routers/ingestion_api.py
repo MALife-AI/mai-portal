@@ -238,6 +238,85 @@ async def ingest_local_path(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@router.post("/pdf-to-docx")
+async def convert_pdf_to_docx(
+    file: UploadFile = File(...),
+    dest: str = Form(""),
+    user_id: str = Depends(get_current_user),
+):
+    """PDF → DOCX 변환 → 마크다운 인제스션 → 그래프 적재.
+
+    1. pdf2docx로 레이아웃 보존 DOCX 생성
+    2. DOCX를 Pandoc 파이프라인으로 마크다운 변환 → vault 저장
+    3. 그래프 엔티티/관계 추출 → 지식그래프 적재
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return {"error": "PDF 파일만 지원합니다"}
+
+    doc_name = Path(file.filename).stem
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+        content = await file.read()
+        tmp_in.write(content)
+        pdf_path = Path(tmp_in.name)
+
+    docx_path = pdf_path.with_suffix(".docx")
+
+    try:
+        # Step 1: PDF → DOCX (레이아웃 보존)
+        from pdf2docx import Converter
+
+        def _convert():
+            cv = Converter(str(pdf_path))
+            cv.convert(str(docx_path))
+            cv.close()
+
+        await asyncio.to_thread(_convert)
+
+        if not docx_path.exists():
+            return {"error": "DOCX 변환 실패"}
+
+        # Step 2: DOCX → 마크다운 (인제스션 파이프라인)
+        rel_path = dest or f"Public/{doc_name}.md"
+        md_path = await _pipeline.ingest(docx_path, user_id=user_id, dest_rel=rel_path)
+
+        # Step 3: 그래프 적재
+        graph_result = {"entities": 0, "relationships": 0}
+        try:
+            from backend.graph.extractor import GraphExtractor
+            from backend.graph.store import GraphStore
+
+            persist_path = settings.vault_root / ".graph" / "knowledge_graph.json"
+            store = GraphStore(persist_path=persist_path)
+            extractor = GraphExtractor(graph_store=store)
+
+            md_full_path = settings.vault_root / rel_path.lstrip("/")
+            if md_full_path.exists():
+                md_content = md_full_path.read_text(encoding="utf-8")
+                entities, relationships = await extractor.extract_from_file(
+                    md_full_path, f"/{rel_path.lstrip('/')}"
+                )
+                store.save()
+                graph_result = {
+                    "entities": len(entities),
+                    "relationships": len(relationships),
+                }
+        except Exception as e:
+            graph_result = {"error": str(e)}
+
+        return {
+            "status": "completed",
+            "path": md_path,
+            "source": file.filename,
+            "graph": graph_result,
+        }
+    except Exception as e:
+        return {"error": f"처리 실패: {str(e)}"}
+    finally:
+        pdf_path.unlink(missing_ok=True)
+        docx_path.unlink(missing_ok=True)
+
+
 def _sse(data: dict) -> str:
     """SSE 형식으로 JSON 이벤트 생성."""
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"

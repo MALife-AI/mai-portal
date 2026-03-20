@@ -22,6 +22,7 @@ export interface AgentMessage {
   execution_log?: import('@/api/client').ExecutionStep[]
   reasoning?: string
   thread_id?: string
+  source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
 }
 
 export interface AgentThread {
@@ -50,6 +51,7 @@ interface AppState {
   createThread: () => string
   setActiveThread: (id: string) => void
   addMessageToThread: (threadId: string, message: AgentMessage) => void
+  updateMessageInThread: (threadId: string, messageId: string, updater: (msg: AgentMessage) => AgentMessage) => void
   deleteThread: (id: string) => void
   getActiveThread: () => AgentThread | undefined
 
@@ -127,6 +129,19 @@ export const useStore = create<AppState>()(
               ...t,
               messages: updatedMessages,
               title,
+              updatedAt: new Date().toISOString(),
+            }
+          }),
+        }))
+      },
+
+      updateMessageInThread: (threadId, messageId, updater) => {
+        set((state) => ({
+          threads: state.threads.map((t) => {
+            if (t.id !== threadId) return t
+            return {
+              ...t,
+              messages: t.messages.map((m) => (m.id === messageId ? updater(m) : m)),
               updatedAt: new Date().toISOString(),
             }
           }),

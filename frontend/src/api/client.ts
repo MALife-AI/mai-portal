@@ -40,10 +40,11 @@ async function request<T>(
 
   if (!response.ok) {
     let detail: unknown
+    const raw = await response.text()
     try {
-      detail = await response.json()
+      detail = JSON.parse(raw)
     } catch {
-      detail = await response.text()
+      detail = raw
     }
     const err: ApiError = {
       message: `HTTP ${response.status}: ${response.statusText}`,
@@ -244,12 +245,80 @@ export interface AgentResponse {
   thread_id: string
 }
 
+export interface StreamCallbacks {
+  onToken: (token: string) => void
+  onMetadata: (meta: {
+    thread_id: string
+    execution_log: ExecutionStep[]
+    reasoning?: string
+    source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
+  }) => void
+  onDone: () => void
+  onError: (err: string) => void
+}
+
 export const agentApi = {
   run: (payload: { query: string; thread_id?: string }) =>
     request<AgentResponse>('/api/v1/agent/run', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  stream: async (
+    payload: { query: string; thread_id?: string },
+    callbacks: StreamCallbacks,
+  ) => {
+    const userId = getUserId()
+    const response = await fetch(`${BASE_URL}/api/v1/agent/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+      },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const raw = await response.text()
+      callbacks.onError(`HTTP ${response.status}: ${raw}`)
+      return
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      callbacks.onError('스트림을 읽을 수 없습니다')
+      return
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'metadata') {
+            callbacks.onMetadata(event)
+          } else if (event.type === 'token') {
+            callbacks.onToken(event.content)
+          } else if (event.type === 'done') {
+            callbacks.onDone()
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+    }
+    callbacks.onDone()
+  },
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

@@ -140,6 +140,8 @@ def create_chat_llm(
             model=model_name,
             temperature=temperature,
             base_url=getattr(settings, "ollama_base_url", "http://localhost:11434"),
+            num_ctx=4096,
+            num_predict=1024,
         )
 
     # 기본: OpenAI

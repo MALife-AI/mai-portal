@@ -16,7 +16,7 @@ import {
   Terminal,
   MessageSquare,
 } from 'lucide-react'
-import { agentApi, type ExecutionStep } from '@/api/client'
+import { agentApi, type ExecutionStep, type StreamCallbacks } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
 import { formatRelativeTime, generateId, cn } from '@/lib/utils'
 import { MarkdownViewer } from '@/components/MarkdownViewer'
@@ -222,6 +222,20 @@ function MessageBubble({ message }: { message: AgentMessage }) {
             {formatRelativeTime(message.timestamp)}
           </span>
 
+          {!isUser && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-semibold"
+              style={{
+                background: 'rgba(139, 92, 246, 0.12)',
+                color: 'rgb(139, 92, 246)',
+                border: '1px solid rgba(139, 92, 246, 0.25)',
+              }}
+            >
+              <Brain size={9} />
+              GraphRAG
+            </span>
+          )}
+
           {!isUser && message.execution_log && message.execution_log.length > 0 && (
             <button
               onClick={() => setShowLog((v) => !v)}
@@ -232,6 +246,35 @@ function MessageBubble({ message }: { message: AgentMessage }) {
             </button>
           )}
         </div>
+
+        {/* 출처: 엔티티 + 소스 문서 제목 */}
+        {!isUser && message.source_nodes && message.source_nodes.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {message.source_nodes.map((node) => (
+              <span
+                key={node.id}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-mono leading-tight"
+                style={{
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  color: 'rgb(34, 197, 94)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
+                }}
+                title={node.description || node.name}
+              >
+                <span style={{ fontSize: '9px' }}>⬡</span>
+                <span className="font-semibold">{node.name}</span>
+                {node.source_titles.length > 0 && (
+                  <span className="text-surface-600" style={{ fontSize: '9px' }}>
+                    | {node.source_titles[0]}{node.source_titles.length > 1 ? ` 외 ${node.source_titles.length - 1}건` : ''}
+                    {node.page_start != null && (
+                      <> p.{node.page_start}{node.page_end != null && node.page_end !== node.page_start ? `-${node.page_end}` : ''}</>
+                    )}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Inline execution log */}
         {!isUser && showLog && message.execution_log && (
@@ -308,6 +351,7 @@ export default function AgentConsole() {
     createThread,
     setActiveThread,
     addMessageToThread,
+    updateMessageInThread,
     deleteThread,
     getActiveThread,
   } = useStore()
@@ -324,6 +368,14 @@ export default function AgentConsole() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeThread?.messages.length])
+
+  // 스트리밍 중 스크롤 유지
+  const streamContentRef = useRef('')
+  useEffect(() => {
+    if (isRunning) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  })
 
   const handleNewThread = useCallback(() => {
     createThread()
@@ -350,32 +402,52 @@ export default function AgentConsole() {
     setQuery('')
     setIsRunning(true)
 
-    try {
-      const result = await agentApi.run({ query: trimmedQuery, thread_id: threadId })
-
-      const agentMsg: AgentMessage = {
-        id: generateId(),
-        role: 'agent',
-        content: result.response,
-        timestamp: new Date().toISOString(),
-        execution_log: result.execution_log,
-        reasoning: result.reasoning,
-        thread_id: result.thread_id,
-      }
-      addMessageToThread(threadId, agentMsg)
-    } catch (err) {
-      const errMsg: AgentMessage = {
-        id: generateId(),
-        role: 'agent',
-        content: `오류가 발생했습니다: ${String(err)}`,
-        timestamp: new Date().toISOString(),
-        execution_log: [],
-      }
-      addMessageToThread(threadId, errMsg)
-      toast.error('에이전트 실행 실패', String(err))
-    } finally {
-      setIsRunning(false)
+    // 빈 에이전트 메시지를 먼저 추가 (스트리밍으로 채워감)
+    const agentMsgId = generateId()
+    const placeholderMsg: AgentMessage = {
+      id: agentMsgId,
+      role: 'agent',
+      content: '',
+      timestamp: new Date().toISOString(),
+      execution_log: [],
     }
+    addMessageToThread(threadId, placeholderMsg)
+    streamContentRef.current = ''
+
+    const tid = threadId // capture for callbacks
+    await agentApi.stream(
+      { query: trimmedQuery, thread_id: threadId },
+      {
+        onMetadata: (meta) => {
+          updateMessageInThread(tid, agentMsgId, (msg) => ({
+            ...msg,
+            execution_log: meta.execution_log,
+            reasoning: meta.reasoning,
+            thread_id: meta.thread_id,
+            source_nodes: meta.source_nodes,
+          }))
+        },
+        onToken: (token) => {
+          streamContentRef.current += token
+          const content = streamContentRef.current
+          updateMessageInThread(tid, agentMsgId, (msg) => ({
+            ...msg,
+            content,
+          }))
+        },
+        onDone: () => {
+          setIsRunning(false)
+        },
+        onError: (err) => {
+          updateMessageInThread(tid, agentMsgId, (msg) => ({
+            ...msg,
+            content: `오류가 발생했습니다: ${err}`,
+          }))
+          toast.error('에이전트 실행 실패', err)
+          setIsRunning(false)
+        },
+      },
+    )
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
