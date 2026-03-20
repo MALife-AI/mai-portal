@@ -406,12 +406,29 @@ class GraphExtractor:
         return relationships
 
     async def extract_from_file(self, file_path: Path, rel_path: str) -> tuple[list[Entity], list[Relationship]]:
+        # Skills, 설정 파일 등은 그래프 적재 대상이 아님
+        rel_parts = Path(rel_path).parts
+        if any(ex in rel_parts for ex in self._EXCLUDE_DIRS):
+            logger.debug("Skipping excluded path: %s", rel_path)
+            return [], []
+        if file_path.name in self._EXCLUDE_FILES:
+            logger.debug("Skipping excluded file: %s", file_path.name)
+            return [], []
+
         content = await asyncio.to_thread(file_path.read_text, "utf-8")
         return await self.extract_from_text(content, rel_path)
 
+    # 그래프 추출 제외 경로 (스킬, 설정 파일 등)
+    _EXCLUDE_DIRS = {"Skills", ".graph", ".obsidian", "assets"}
+    _EXCLUDE_FILES = {"iam.yaml", "iam.yml", "README.md"}
+
     async def build_from_vault(self, vault_root: Path) -> dict[str, Any]:
-        md_files = list(vault_root.rglob("*.md"))
-        logger.info("build_from_vault: %d files found", len(md_files))
+        md_files = [
+            f for f in vault_root.rglob("*.md")
+            if not any(ex in f.relative_to(vault_root).parts for ex in self._EXCLUDE_DIRS)
+            and f.name not in self._EXCLUDE_FILES
+        ]
+        logger.info("build_from_vault: %d files found (after exclusion)", len(md_files))
 
         self._store.clear()
 

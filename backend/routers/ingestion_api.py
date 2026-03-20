@@ -195,7 +195,7 @@ async def ingest_local_path(
     dest: str = Form("Public/"),
     user_id: str = Depends(get_current_user),
 ):
-    """로컬 디렉토리를 직접 읽어 vault로 변환. SSE로 진행률 스트리밍."""
+    """로컬 디렉토리를 백그라운드 태스크로 변환. 페이지 이동해도 계속 실행."""
     source = Path(source_dir)
     if not source.exists() or not source.is_dir():
         return {"error": f"Directory not found: {source_dir}"}
@@ -204,72 +204,69 @@ async def ingest_local_path(
     TEXT_EXTS = {".md", ".txt", ".yaml", ".yml", ".json"}
     IGNORE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
-    all_files = [
-        f for f in source.rglob("*")
-        if f.is_file()
-        and f.name not in IGNORE_NAMES
-        and not f.name.startswith(".")
-        and not any(p.startswith(".") or p.startswith("__") for p in f.relative_to(source).parts[:-1])
-    ]
-
-    total = len(all_files)
-
-    async def event_stream():
+    async def _run(task: TaskInfo):
         from backend.core.vault import write_document
 
-        processed = 0
-        success = 0
-        errors = 0
-        skipped = 0
+        task.message = "파일 스캔 중..."
 
-        yield _sse({"type": "start", "total": total, "source": source_dir})
+        all_files = await asyncio.to_thread(
+            lambda: [
+                f for f in source.rglob("*")
+                if f.is_file()
+                and f.name not in IGNORE_NAMES
+                and not f.name.startswith(".")
+                and not any(p.startswith(".") or p.startswith("__") for p in f.relative_to(source).parts[:-1])
+            ]
+        )
+        task.total = len(all_files)
+        task.message = f"{task.total}개 파일 변환 시작"
+        task.result = {"success": 0, "errors": 0, "skipped": 0}
 
         for file_path in all_files:
+            # 취소 확인
+            if task.status == TaskStatus.CANCELLED:
+                break
+
             rel = file_path.relative_to(source)
             target_rel = f"{dest.rstrip('/')}/{rel}"
             ext = file_path.suffix.lower()
-            processed += 1
+            task.progress += 1
+            task.message = str(rel)
 
             try:
                 if ext in TEXT_EXTS:
                     body = file_path.read_text(encoding="utf-8", errors="replace")
                     await write_document(target_rel, body, user_id=user_id)
-                    success += 1
-                    yield _sse({"type": "progress", "file": str(rel), "status": "saved", "processed": processed, "total": total})
+                    task.result["success"] += 1
 
                 elif ext in SUPPORTED:
                     md_target = str(Path(target_rel).with_suffix(".md"))
                     try:
-                        result_path = await _pipeline.ingest(file_path, user_id=user_id, dest_rel=md_target)
-                        success += 1
-                        yield _sse({"type": "progress", "file": str(rel), "status": "ingested", "path": result_path, "processed": processed, "total": total})
-                    except Exception as e:
-                        # 폴백 체인: pandoc → pdftotext → OCR(pdftoppm+tesseract)
+                        await _pipeline.ingest(file_path, user_id=user_id, dest_rel=md_target)
+                        task.result["success"] += 1
+                    except Exception:
                         fallback_text = await _fallback_convert(file_path, ext)
                         if fallback_text:
                             from backend.ingestion.markdown_post import post_process
                             cleaned = post_process(fallback_text)
                             await write_document(md_target, cleaned, user_id=user_id, extra_meta={"source_format": ext, "fallback": True})
-                            success += 1
-                            yield _sse({"type": "progress", "file": str(rel), "status": "fallback", "processed": processed, "total": total})
+                            task.result["success"] += 1
                         else:
-                            errors += 1
-                            yield _sse({"type": "progress", "file": str(rel), "status": "error", "error": str(e)[:100], "processed": processed, "total": total})
+                            task.result["errors"] += 1
                 else:
-                    skipped += 1
-                    yield _sse({"type": "progress", "file": str(rel), "status": "skipped", "processed": processed, "total": total})
+                    task.result["skipped"] += 1
 
-            except Exception as e:
-                errors += 1
-                yield _sse({"type": "progress", "file": str(rel), "status": "error", "error": str(e)[:100], "processed": processed, "total": total})
+            except Exception:
+                task.result["errors"] += 1
 
-            # 매 10건마다 살짝 양보
-            if processed % 10 == 0:
+            if task.progress % 10 == 0:
                 await asyncio.sleep(0)
 
-        yield _sse({"type": "done", "total": total, "success": success, "errors": errors, "skipped": skipped})
+        s = task.result
+        task.message = f"완료: {s['success']}건 성공, {s['errors']}건 실패, {s['skipped']}건 건너뜀"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    task_id = task_manager.submit(f"로컬 인제스트: {source_dir}", _run)
+    return {"status": "accepted", "task_id": task_id}
 
 
 @router.post("/pdf-to-docx")
@@ -376,7 +373,7 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
     if ext != ".pdf":
         return None
 
-    # 2단계: pdf2docx → pandoc (레이아웃 보존 변환)
+    # 2단계: pdf2docx → pandoc (레이아웃 보존 변환, 60초 타임아웃)
     try:
         from pdf2docx import Converter as Pdf2DocxConverter
 
@@ -389,7 +386,7 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
                 cv.convert(str(docx_path))
                 cv.close()
 
-            await asyncio.to_thread(_pdf2docx)
+            await asyncio.wait_for(asyncio.to_thread(_pdf2docx), timeout=60)
 
             if docx_path.exists():
                 result = subprocess.run(
@@ -398,10 +395,12 @@ async def _fallback_convert(file_path: Path, ext: str) -> str | None:
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     text = result.stdout.strip()
-                    # 유의미한 텍스트가 충분히 있는지 확인
                     alpha_count = sum(1 for c in text if c.isalpha())
                     if alpha_count > 100:
                         return f"# {file_path.stem}\n\n{text}"
+    except asyncio.TimeoutError:
+        import logging
+        logging.getLogger(__name__).warning("pdf2docx timed out for %s", file_path.name)
     except Exception:
         pass
 

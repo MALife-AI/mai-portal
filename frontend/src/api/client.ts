@@ -146,13 +146,14 @@ export interface BatchIngestResponse {
 }
 
 export const ingestApi = {
-  upload: (file: File, dest: string) => {
+  upload: (file: File, dest: string, signal?: AbortSignal) => {
     const form = new FormData()
     form.append('file', file)
     form.append('dest', dest)
     return request<IngestResponse>('/api/v1/ingest/upload', {
       method: 'POST',
       body: form,
+      signal,
     })
   },
 

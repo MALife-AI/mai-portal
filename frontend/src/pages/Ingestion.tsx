@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -31,12 +31,13 @@ interface UploadJob {
   id: string
   file: File
   dest: string
-  status: 'queued' | 'uploading' | 'success' | 'error'
+  status: 'queued' | 'uploading' | 'success' | 'error' | 'cancelled'
   stageStatuses: StageStatus[]
   result?: IngestResponse
   error?: string
   startedAt: string
   completedAt?: string
+  taskId?: string
 }
 
 const FILE_ICONS: Record<string, React.ReactNode> = {
@@ -104,7 +105,7 @@ function PipelineProgress({ stageStatuses }: { stageStatuses: StageStatus[] }) {
   )
 }
 
-function UploadJobCard({ job }: { job: UploadJob }) {
+function UploadJobCard({ job, onCancel }: { job: UploadJob; onCancel?: (id: string) => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -124,16 +125,28 @@ function UploadJobCard({ job }: { job: UploadJob }) {
                 <span className="text-2xs font-mono text-gold-500">{job.dest}</span>
               </div>
             </div>
-            <div className="shrink-0">
+            <div className="shrink-0 flex items-center gap-1.5">
               {job.status === 'queued' && <span className="tag tag-gold">대기</span>}
               {job.status === 'uploading' && (
-                <span className="tag tag-blue flex items-center gap-1">
-                  <Loader2 size={9} className="animate-spin" />
-                  업로드 중
-                </span>
+                <>
+                  <span className="tag tag-blue flex items-center gap-1">
+                    <Loader2 size={9} className="animate-spin" />
+                    변환 중
+                  </span>
+                  {onCancel && (
+                    <button
+                      onClick={() => onCancel(job.id)}
+                      className="w-5 h-5 rounded flex items-center justify-center text-surface-600 hover:text-status-error hover:bg-surface-200 transition-colors"
+                      title="변환 중지"
+                    >
+                      <XCircle size={13} />
+                    </button>
+                  )}
+                </>
               )}
               {job.status === 'success' && <span className="tag tag-success">완료</span>}
               {job.status === 'error' && <span className="tag tag-error">오류</span>}
+              {job.status === 'cancelled' && <span className="tag tag-gold">중지됨</span>}
             </div>
           </div>
 
@@ -191,6 +204,7 @@ export default function Ingestion() {
   const [folderJobs, setFolderJobs] = useState<FolderUploadJob[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const abortControllers = useRef<Map<string, AbortController>>(new Map())
 
   // 로컬 경로 인제스트
   const [localPath, setLocalPath] = useState('/Users/lsc/crawlpdf/downloads')
@@ -198,9 +212,78 @@ export default function Ingestion() {
     status: 'idle', total: 0, processed: 0, success: 0, errors: 0, skipped: 0, currentFile: '', log: [],
   })
 
+  const localTaskIdRef = useRef<string | null>(null)
+  const localPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 페이지 복귀 시 진행 중인 태스크 복원
+  useEffect(() => {
+    const savedTaskId = sessionStorage.getItem('localIngestTaskId')
+    if (savedTaskId) {
+      localTaskIdRef.current = savedTaskId
+      startPolling(savedTaskId)
+    }
+    return () => {
+      if (localPollRef.current) clearInterval(localPollRef.current)
+    }
+  }, [])
+
+  function startPolling(taskId: string) {
+    if (localPollRef.current) clearInterval(localPollRef.current)
+    const uid = localStorage.getItem('malife_user_id') || 'admin01'
+
+    setLocalIngest(prev => ({ ...prev, status: 'running' }))
+
+    localPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/v1/ingest/tasks/${taskId}`, {
+          headers: { 'X-User-Id': uid },
+        })
+        if (!res.ok) return
+        const task = await res.json()
+
+        setLocalIngest(prev => ({
+          ...prev,
+          status: task.status === 'running' || task.status === 'pending' ? 'running' : 'done',
+          total: task.total || 0,
+          processed: task.progress || 0,
+          success: task.result?.success || 0,
+          errors: task.result?.errors || 0,
+          skipped: task.result?.skipped || 0,
+          currentFile: task.message || '',
+        }))
+
+        if (task.status !== 'running' && task.status !== 'pending') {
+          if (localPollRef.current) clearInterval(localPollRef.current)
+          localPollRef.current = null
+          sessionStorage.removeItem('localIngestTaskId')
+          localTaskIdRef.current = null
+          if (task.status === 'completed') {
+            toast.success('로컬 인제스트 완료', task.message)
+          } else if (task.status === 'cancelled') {
+            toast.success('변환 중지', '사용자에 의해 중지됨')
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2000)
+  }
+
+  function handleLocalCancel() {
+    const taskId = localTaskIdRef.current
+    if (!taskId) return
+    const uid = localStorage.getItem('malife_user_id') || 'admin01'
+    fetch(`/api/v1/ingest/tasks/${taskId}`, {
+      method: 'DELETE',
+      headers: { 'X-User-Id': uid },
+    }).catch(() => {})
+    setLocalIngest(prev => ({ ...prev, status: 'done', currentFile: '사용자에 의해 중지됨' }))
+    if (localPollRef.current) clearInterval(localPollRef.current)
+    sessionStorage.removeItem('localIngestTaskId')
+    toast.success('변환 중지', '로컬 인제스트가 중지되었습니다')
+  }
+
   async function handleLocalIngest() {
     const dest = destBase === 'Private' ? `Private/${userId}/` : 'Public/'
-    setLocalIngest({ status: 'running', total: 0, processed: 0, success: 0, errors: 0, skipped: 0, currentFile: '스캔 중...', log: [] })
+    setLocalIngest({ status: 'running', total: 0, processed: 0, success: 0, errors: 0, skipped: 0, currentFile: '태스크 제출 중...', log: [] })
 
     try {
       const form = new FormData()
@@ -214,51 +297,17 @@ export default function Ingestion() {
         body: form,
       })
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No stream')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const evt = JSON.parse(line.slice(6))
-            if (evt.type === 'start') {
-              setLocalIngest(prev => ({ ...prev, total: evt.total }))
-            } else if (evt.type === 'progress') {
-              setLocalIngest(prev => ({
-                ...prev,
-                processed: evt.processed,
-                currentFile: evt.file,
-                success: prev.success + (evt.status === 'ingested' || evt.status === 'saved' || evt.status === 'fallback' ? 1 : 0),
-                errors: prev.errors + (evt.status === 'error' ? 1 : 0),
-                skipped: prev.skipped + (evt.status === 'skipped' ? 1 : 0),
-                log: evt.status === 'error' ? [...prev.log.slice(-49), { file: evt.file, status: evt.status, error: evt.error }] : prev.log,
-              }))
-            } else if (evt.type === 'done') {
-              setLocalIngest(prev => ({
-                ...prev,
-                status: 'done',
-                total: evt.total,
-                success: evt.success,
-                errors: evt.errors,
-                skipped: evt.skipped,
-                currentFile: '',
-              }))
-              toast.success('로컬 인제스트 완료', `${evt.success}/${evt.total} 변환 성공`)
-            }
-          } catch { /* skip parse errors */ }
-        }
+      const data = await response.json()
+      if (data.error) {
+        setLocalIngest(prev => ({ ...prev, status: 'error', currentFile: data.error }))
+        toast.error('인제스트 실패', data.error)
+        return
       }
+
+      const taskId = data.task_id
+      localTaskIdRef.current = taskId
+      sessionStorage.setItem('localIngestTaskId', taskId)
+      startPolling(taskId)
     } catch (err) {
       setLocalIngest(prev => ({ ...prev, status: 'error', currentFile: String(err) }))
       toast.error('로컬 인제스트 실패', String(err))
@@ -285,13 +334,16 @@ export default function Ingestion() {
     const dest =
       destBase === 'Private' ? `Private/${userId}/` : 'Public/'
 
+    const controller = new AbortController()
+    abortControllers.current.set(job.id, controller)
+
     updateJob(job.id, { status: 'uploading', stageStatuses: PIPELINE_STAGES.map(() => 'pending') })
 
     const pipelinePromise = simulatePipeline(job.id)
 
     try {
       const [result] = await Promise.all([
-        ingestApi.upload(job.file, dest),
+        ingestApi.upload(job.file, dest, controller.signal),
         pipelinePromise,
       ])
 
@@ -303,16 +355,41 @@ export default function Ingestion() {
       })
       toast.success('업로드 완료', `${job.file.name} 인덱싱 완료`)
     } catch (err) {
-      updateJob(job.id, {
-        status: 'error',
-        error: String(err),
-        completedAt: new Date().toISOString(),
-        stageStatuses: PIPELINE_STAGES.map((_, i) => {
-          const s = job.stageStatuses[i]
-          return s === 'done' ? 'done' : s === 'running' ? 'error' : 'pending'
-        }),
-      })
-      toast.error('업로드 실패', job.file.name)
+      if (controller.signal.aborted) {
+        updateJob(job.id, {
+          status: 'cancelled',
+          completedAt: new Date().toISOString(),
+          stageStatuses: PIPELINE_STAGES.map(() => 'pending'),
+        })
+        // 서버 태스크도 취소
+        if (job.taskId) {
+          fetch(`/api/v1/ingest/tasks/${job.taskId}`, {
+            method: 'DELETE',
+            headers: { 'X-User-Id': userId },
+          }).catch(() => {})
+        }
+        toast.success('변환 중지', `${job.file.name}`)
+      } else {
+        updateJob(job.id, {
+          status: 'error',
+          error: String(err),
+          completedAt: new Date().toISOString(),
+          stageStatuses: PIPELINE_STAGES.map((_, i) => {
+            const s = job.stageStatuses[i]
+            return s === 'done' ? 'done' : s === 'running' ? 'error' : 'pending'
+          }),
+        })
+        toast.error('업로드 실패', job.file.name)
+      }
+    } finally {
+      abortControllers.current.delete(job.id)
+    }
+  }
+
+  function cancelJob(jobId: string) {
+    const controller = abortControllers.current.get(jobId)
+    if (controller) {
+      controller.abort()
     }
   }
 
@@ -593,20 +670,22 @@ export default function Ingestion() {
             placeholder="/path/to/documents"
             className="input-field flex-1 font-mono text-xs"
           />
-          <button
-            onClick={handleLocalIngest}
-            disabled={localIngest.status === 'running' || !localPath}
-            className={cn(
-              'btn-primary flex items-center gap-2 text-sm whitespace-nowrap',
-              localIngest.status === 'running' && 'opacity-50 cursor-not-allowed',
-            )}
-          >
-            {localIngest.status === 'running' ? (
-              <><Loader2 size={14} className="animate-spin" /> 변환 중...</>
-            ) : (
-              <><ChevronRight size={14} /> 변환 시작</>
-            )}
-          </button>
+          {localIngest.status === 'running' ? (
+            <button
+              onClick={handleLocalCancel}
+              className="btn-secondary flex items-center gap-2 text-sm whitespace-nowrap text-status-error border-status-error/30 hover:bg-status-error/10"
+            >
+              <XCircle size={14} /> 변환 중지
+            </button>
+          ) : (
+            <button
+              onClick={handleLocalIngest}
+              disabled={!localPath}
+              className="btn-primary flex items-center gap-2 text-sm whitespace-nowrap"
+            >
+              <ChevronRight size={14} /> 변환 시작
+            </button>
+          )}
         </div>
 
         {/* 진행률 바 */}
@@ -791,7 +870,7 @@ export default function Ingestion() {
             </div>
             <div className="space-y-3">
               {activeJobs.map((job) => (
-                <UploadJobCard key={job.id} job={job} />
+                <UploadJobCard key={job.id} job={job} onCancel={cancelJob} />
               ))}
             </div>
           </motion.div>
@@ -808,7 +887,7 @@ export default function Ingestion() {
           <div className="space-y-3">
             <AnimatePresence>
               {completedJobs.map((job) => (
-                <UploadJobCard key={job.id} job={job} />
+                <UploadJobCard key={job.id} job={job} onCancel={cancelJob} />
               ))}
             </AnimatePresence>
           </div>

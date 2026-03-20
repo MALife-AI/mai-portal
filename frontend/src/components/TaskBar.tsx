@@ -42,9 +42,11 @@ export function TaskBar() {
 
   useEffect(() => {
     fetchTasks()
-    const interval = setInterval(fetchTasks, 2000)
+    // 활성 태스크가 있을 때만 빠르게 폴링
+    const hasActive = tasks.some((t) => t.status === 'running' || t.status === 'pending')
+    const interval = setInterval(fetchTasks, hasActive ? 2000 : 10000)
     return () => clearInterval(interval)
-  }, [fetchTasks])
+  }, [fetchTasks, tasks.length])
 
   const cancelTask = async (taskId: string) => {
     try {
