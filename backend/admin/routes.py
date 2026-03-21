@@ -922,7 +922,7 @@ async def permission_catalog(
         categories[cat].append(p)
     return {
         "categories": categories,
-        "templates": ROLE_TEMPLATES,
+        "templates": _all_templates(),
     }
 
 
@@ -935,14 +935,29 @@ async def list_user_permissions(
     require_admin(user_id, iam)
     perms = _load_user_permissions()
     iam_data = iam.as_dict()
+
+    # 역할 → 템플릿 매핑 (기본 권한 유추)
+    role_to_template: dict[str, list[str]] = {}
+    for tpl in ROLE_TEMPLATES:
+        role_to_template[tpl["id"]] = tpl["permissions"]
+
     users = []
     for u in iam_data.get("users", []):
         uid = u.get("user_id", "")
+        user_perms = perms.get(uid)
+        if user_perms is None:
+            # permissions.json에 없으면 역할 기반 기본 권한 제공
+            user_roles = u.get("roles", [])
+            default_perms: set[str] = set()
+            for role in user_roles:
+                default_perms.update(role_to_template.get(role, []))
+            user_perms = sorted(default_perms)
         users.append({
             "user_id": uid,
             "display_name": u.get("display_name", uid),
             "roles": u.get("roles", []),
-            "permissions": perms.get(uid, []),
+            "department": u.get("department", ""),
+            "permissions": user_perms,
         })
     return {"users": users}
 
@@ -979,13 +994,77 @@ async def apply_permission_template(
 ):
     """역할 템플릿을 사용자에게 적용."""
     require_admin(user_id, iam)
-    tpl = next((t for t in ROLE_TEMPLATES if t["id"] == body.template_id), None)
+    tpl = next((t for t in _all_templates() if t["id"] == body.template_id), None)
     if not tpl:
         raise HTTPException(404, f"Template '{body.template_id}' not found")
     perms = _load_user_permissions()
     perms[body.user_id] = tpl["permissions"]
     _save_user_permissions(perms)
     return {"status": "applied", "user_id": body.user_id, "template": body.template_id, "permissions": tpl["permissions"]}
+
+
+# 커스텀 역할 템플릿 저장소
+_CUSTOM_TEMPLATES_PATH = Path(settings.vault_root).parent / "data" / "role_templates.json"
+
+
+def _load_custom_templates() -> list[dict[str, Any]]:
+    if _CUSTOM_TEMPLATES_PATH.exists():
+        return json.loads(_CUSTOM_TEMPLATES_PATH.read_text(encoding="utf-8"))
+    return []
+
+
+def _save_custom_templates(templates: list[dict[str, Any]]) -> None:
+    _CUSTOM_TEMPLATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CUSTOM_TEMPLATES_PATH.write_text(json.dumps(templates, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _all_templates() -> list[dict[str, Any]]:
+    return ROLE_TEMPLATES + _load_custom_templates()
+
+
+@router.post("/permissions/template")
+async def create_custom_template(
+    body: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """커스텀 역할 템플릿 생성."""
+    require_admin(user_id, iam)
+    tpl_id = body.get("id", "")
+    if not tpl_id or not body.get("name"):
+        raise HTTPException(400, "id와 name은 필수입니다")
+    # 기본 템플릿과 중복 체크
+    if any(t["id"] == tpl_id for t in ROLE_TEMPLATES):
+        raise HTTPException(409, f"기본 템플릿 '{tpl_id}'와 중복됩니다")
+    templates = _load_custom_templates()
+    templates = [t for t in templates if t["id"] != tpl_id]  # 같은 id 덮어쓰기
+    templates.append({
+        "id": tpl_id,
+        "name": body["name"],
+        "description": body.get("description", ""),
+        "permissions": body.get("permissions", []),
+        "custom": True,
+    })
+    _save_custom_templates(templates)
+    return {"status": "created", "template": tpl_id}
+
+
+@router.delete("/permissions/template/{template_id}")
+async def delete_custom_template(
+    template_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """커스텀 역할 템플릿 삭제."""
+    require_admin(user_id, iam)
+    if any(t["id"] == template_id for t in ROLE_TEMPLATES):
+        raise HTTPException(400, "기본 템플릿은 삭제할 수 없습니다")
+    templates = _load_custom_templates()
+    new_templates = [t for t in templates if t["id"] != template_id]
+    if len(new_templates) == len(templates):
+        raise HTTPException(404, f"템플릿 '{template_id}'를 찾을 수 없습니다")
+    _save_custom_templates(new_templates)
+    return {"status": "deleted", "template": template_id}
 
 
 # ─── 추론 서버 부하 (공개 API — 로그인만 필요) ────────────────────────────────
