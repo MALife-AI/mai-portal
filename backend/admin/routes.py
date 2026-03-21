@@ -252,14 +252,14 @@ async def get_model_config(
 ):
     require_admin(user_id, iam)
     config = {
-        "vlm_provider": os.environ.get("VLM_PROVIDER", settings.vlm_provider),
-        "vlm_model": os.environ.get("VLM_MODEL", settings.vlm_model),
-        "llama_server_url": getattr(settings, "llama_server_url", "http://localhost:8801/v1"),
+        "vlm_provider": settings.vlm_provider,
+        "vlm_model": settings.vlm_model,
+        "llama_server_url": settings.llama_server_url,
         "claude_wrapper_url": settings.claude_wrapper_url,
         "ollama_base_url": settings.ollama_base_url,
-        "smart_routing": getattr(settings, "smart_routing", False),
-        "llama_server_light": getattr(settings, "llama_server_light", ""),
-        "llama_server_heavy": getattr(settings, "llama_server_heavy", ""),
+        "smart_routing": settings.smart_routing,
+        "llama_server_light": settings.llama_server_light,
+        "llama_server_heavy": settings.llama_server_heavy,
     }
     available_models = []
     try:
