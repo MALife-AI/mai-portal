@@ -6,7 +6,7 @@ import { TaskBar } from './TaskBar'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': '대시보드',
-  '/vault': '볼트 탐색기',
+  '/vault': '파일 탐색기',
   '/agent': '에이전트 콘솔',
   '/ingest': '문서 업로드',
   '/search': '시맨틱 검색',

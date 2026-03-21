@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
   { to: '/', label: '대시보드', icon: LayoutDashboard, end: true },
-  { to: '/vault', label: '볼트 탐색기', icon: FolderOpen },
+  { to: '/vault', label: '파일 탐색기', icon: FolderOpen },
   { to: '/agent', label: '에이전트 콘솔', icon: Bot },
   { to: '/workflow', label: '워크플로우', icon: Workflow },
   { to: '/ingest', label: '문서 업로드', icon: UploadCloud },

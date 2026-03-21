@@ -22,7 +22,7 @@ import { getFileName, cn, pathsToFlatList } from '@/lib/utils'
 
 export default function VaultExplorer() {
   const toast = useToast()
-  const { selectedVaultPath, setSelectedVaultPath } = useStore()
+  const { selectedVaultPath, setSelectedVaultPath, userId } = useStore()
 
   const [files, setFiles] = useState<string[]>([])
   const [doc, setDoc] = useState<DocResponse | null>(null)
@@ -39,6 +39,7 @@ export default function VaultExplorer() {
   const [isDeleting, setIsDeleting] = useState(false)
 
   // 멀티 선택 상태
+  const [fileTab, setFileTab] = useState<'shared' | 'private'>('shared')
   const [selectMode, setSelectMode] = useState(false)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set())
@@ -58,6 +59,13 @@ export default function VaultExplorer() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const filteredFiles = useMemo(() => {
+    if (fileTab === 'private') {
+      return files.filter(f => f.startsWith('Private/'))
+    }
+    return files.filter(f => f.startsWith('Shared/') || (!f.startsWith('Private/') && !f.startsWith('.')))
+  }, [files, fileTab])
 
   useEffect(() => {
     fetchFiles()
@@ -124,7 +132,7 @@ export default function VaultExplorer() {
       await vaultApi.createDoc({ path: doc.path, content: editContent })
       setDoc({ ...doc, content: editContent })
       setIsEditing(false)
-      toast.success('저장 완료', '문서가 Git 볼트에 커밋되었습니다.')
+      toast.success('저장 완료', '문서가 저장되었습니다.')
     } catch (err) {
       toast.error('저장 실패', String(err))
     } finally {
@@ -335,13 +343,35 @@ tags: []
           background: 'var(--color-bg-secondary)',
         }}
       >
+        {/* 공동/개인 탭 */}
+        <div className="flex" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <button
+            onClick={() => setFileTab('shared')}
+            className={cn(
+              'flex-1 py-2 text-xs font-semibold transition-colors',
+              fileTab === 'shared' ? 'text-gold-500 border-b-2 border-gold-500' : 'text-surface-600 hover:text-surface-800',
+            )}
+          >
+            🌐 공동 파일
+          </button>
+          <button
+            onClick={() => setFileTab('private')}
+            className={cn(
+              'flex-1 py-2 text-xs font-semibold transition-colors',
+              fileTab === 'private' ? 'text-gold-500 border-b-2 border-gold-500' : 'text-surface-600 hover:text-surface-800',
+            )}
+          >
+            🔒 개인 파일
+          </button>
+        </div>
+
         {/* Tree header */}
         <div
-          className="flex items-center justify-between px-3 py-2.5"
+          className="flex items-center justify-between px-3 py-1.5"
           style={{ borderBottom: '1px solid var(--color-border)' }}
         >
-          <span className="text-2xs font-mono text-surface-600 uppercase tracking-widest">
-            볼트 파일
+          <span className="text-2xs text-surface-600">
+            {fileTab === 'shared' ? 'Shared/' : `Private/${userId}/`}
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -417,7 +447,7 @@ tags: []
             </div>
           ) : (
             <FileTree
-              paths={files}
+              paths={filteredFiles}
               selectedPath={selectedVaultPath}
               onSelect={(path) => {
                 setSelectedVaultPath(path)
