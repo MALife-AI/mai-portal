@@ -967,6 +967,75 @@ function DepartmentsTab() {
 
 // ─── Infra ───────────────────────────────────────────────────────────────────
 
+function GpuServerMetrics() {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(() => {
+    setLoading(true)
+    api('/api/v1/admin/inference-status').then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { refresh(); const t = setInterval(refresh, 10000); return () => clearInterval(t) }, [refresh])
+
+  if (!data?.servers?.length) return null
+
+  return (
+    <div className="panel p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-surface-800">GPU 추론 서버 메트릭</p>
+        <button onClick={refresh} className="btn-secondary text-2xs flex items-center gap-1" disabled={loading}>
+          <RefreshCw size={10} className={loading ? 'animate-spin' : ''} /> 새로고침
+        </button>
+      </div>
+      <div className="space-y-3">
+        {data.servers.map((srv: any) => (
+          <div key={srv.id || srv.url} className="rounded-md p-3" style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className={cn('w-2.5 h-2.5 rounded-full', srv.signal === 'green' ? 'bg-status-success' : srv.signal === 'yellow' ? 'bg-status-warning' : 'bg-status-error')} />
+                <span className="text-xs font-semibold text-surface-900">{srv.name || srv.id}</span>
+                <span className="text-2xs font-mono text-surface-600">{srv.url}</span>
+              </div>
+              <span className={cn('tag text-2xs', srv.online ? 'tag-success' : 'tag-error')}>{srv.label}</span>
+            </div>
+            {srv.online && (
+              <div className="grid grid-cols-5 gap-2 mt-2">
+                <div>
+                  <p className="text-2xs text-surface-600">슬롯</p>
+                  <p className="text-sm font-bold text-surface-900">{srv.slots_busy}/{srv.slots_total}</p>
+                </div>
+                <div>
+                  <p className="text-2xs text-surface-600">부하</p>
+                  <p className="text-sm font-bold text-surface-900">{srv.load_pct}%</p>
+                </div>
+                {srv.metrics?.tokens_per_second != null && (
+                  <div>
+                    <p className="text-2xs text-surface-600">토큰/s</p>
+                    <p className="text-sm font-bold text-gold-500">{srv.metrics.tokens_per_second}</p>
+                  </div>
+                )}
+                {srv.metrics?.tokens_predicted_total != null && (
+                  <div>
+                    <p className="text-2xs text-surface-600">총 토큰</p>
+                    <p className="text-sm font-bold text-surface-900">{Math.round(srv.metrics.tokens_predicted_total).toLocaleString()}</p>
+                  </div>
+                )}
+                {srv.metrics?.kv_cache_usage_ratio != null && (
+                  <div>
+                    <p className="text-2xs text-surface-600">KV 캐시</p>
+                    <p className="text-sm font-bold text-surface-900">{Math.round(srv.metrics.kv_cache_usage_ratio * 100)}%</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function InfraTab() {
   const [infra, setInfra] = useState<InfraData | null>(null)
 
@@ -1022,16 +1091,17 @@ function InfraTab() {
         </div>
       </div>
 
+      {/* GPU 추론 서버 실시간 메트릭 */}
+      <GpuServerMetrics />
+
       {/* GPU 추론 서버 관리 */}
       <div className="panel p-4">
         <p className="text-xs font-semibold text-surface-800 mb-3">GPU 추론 서버 (Docker)</p>
         <div className="space-y-2 text-xs text-surface-600">
           <p>GPU 머신에 모델 서빙 컨테이너를 배포합니다.</p>
           <div className="rounded p-3 font-mono text-2xs" style={{ background: 'var(--color-bg-primary)' }}>
-            <p className="text-surface-600"># 로컬 배포 (4B 모델)</p>
-            <p className="text-gold-500">cd infra && ./deploy.sh</p>
-            <p className="text-surface-600 mt-2"># 원격 GPU 서버 배포 (9B 모델)</p>
-            <p className="text-gold-500">cd infra && ./deploy.sh gpu-server.local 9b</p>
+            <p className="text-surface-600"># 14B 모델로 원격 배포 (24GB VRAM)</p>
+            <p className="text-gold-500">./deploy.sh gpu-server.local 14b</p>
             <p className="text-surface-600 mt-2"># .env에서 엔드포인트 변경</p>
             <p className="text-gold-500">LLAMA_SERVER_URL=http://gpu-server:8801/v1</p>
           </div>
@@ -1042,7 +1112,7 @@ function InfraTab() {
             </div>
             <div className="flex-1 panel p-3">
               <p className="text-2xs text-surface-600 mb-1">지원 모델</p>
-              <p className="text-xs text-surface-900">Qwen3.5 2B/4B/9B (Unsloth GGUF)</p>
+              <p className="text-xs text-surface-900">Qwen3.5 2B/4B/9B/14B/32B (GGUF)</p>
             </div>
           </div>
         </div>

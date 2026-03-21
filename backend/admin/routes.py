@@ -833,6 +833,42 @@ async def apply_permission_template(
 
 # ─── 추론 서버 부하 (공개 API — 로그인만 필요) ────────────────────────────────
 
+def _parse_prometheus_metrics(text: str) -> dict[str, Any]:
+    """Prometheus 텍스트 형식에서 llama-server 주요 메트릭 추출."""
+    import re
+    result: dict[str, Any] = {}
+    for line in text.splitlines():
+        if line.startswith("#"):
+            continue
+        # 주요 메트릭만 추출
+        for key in (
+            "llamacpp:tokens_predicted_total",
+            "llamacpp:prompt_tokens_total",
+            "llamacpp:tokens_predicted_seconds_total",
+            "llamacpp:prompt_tokens_seconds_total",
+            "llamacpp:requests_processing",
+            "llamacpp:requests_deferred",
+            "llamacpp:kv_cache_usage_ratio",
+            "llamacpp:kv_cache_tokens",
+            "llamacpp:slots_processing",
+        ):
+            if line.startswith(key):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        val = float(parts[-1])
+                        short_key = key.replace("llamacpp:", "")
+                        result[short_key] = val
+                    except ValueError:
+                        pass
+    # 토큰/s 계산
+    pred_total = result.get("tokens_predicted_total", 0)
+    pred_seconds = result.get("tokens_predicted_seconds_total", 0)
+    if pred_seconds > 0:
+        result["tokens_per_second"] = round(pred_total / pred_seconds, 1)
+    return result
+
+
 @router.get("/inference-status")
 async def inference_status(user_id: str = Depends(get_current_user)):
     """각 추론 서버의 실시간 부하 상태를 신호등 색으로 반환."""
@@ -866,6 +902,15 @@ async def inference_status(user_id: str = Depends(get_current_user)):
                 else:
                     signal, label = "red", "혼잡"
 
+                # /metrics에서 상세 메트릭 수집
+                metrics = {}
+                try:
+                    mr = await client.get(f"{base}/metrics")
+                    if mr.status_code == 200:
+                        metrics = _parse_prometheus_metrics(mr.text)
+                except Exception:
+                    pass
+
                 return {
                     **srv,
                     "online": True,
@@ -874,6 +919,7 @@ async def inference_status(user_id: str = Depends(get_current_user)):
                     "load_pct": load_pct,
                     "slots_total": total_slots,
                     "slots_busy": busy_slots,
+                    "metrics": metrics,
                 }
             return {**srv, "online": False, "signal": "red", "label": "오프라인", "load_pct": 0}
         except Exception:
