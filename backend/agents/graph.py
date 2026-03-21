@@ -241,6 +241,7 @@ async def invoke_agent_stream(
     user_roles: list[str],
     skill_registry: SkillRegistry,
     thread_id: str | None = None,
+    server_url: str | None = None,
 ):
     """Unsloth 스타일 auto-healing tool calling + GraphRAG + 스트리밍."""
     import json as _json
@@ -284,6 +285,7 @@ async def invoke_agent_stream(
                 ],
                 "page_start": props.get("page_start"),
                 "page_end": props.get("page_end"),
+                "effective_date": props.get("effective_date"),
             })
             if len(source_nodes) >= 5:
                 break
@@ -303,11 +305,14 @@ async def invoke_agent_stream(
 
     # ── OpenAI tool calling (Unsloth auto-healing loop) ──────────────
     from openai import AsyncOpenAI
-    from backend.agents.llm_factory import get_routed_client
 
-    routed_url, routed_model = get_routed_client(query)
+    if server_url:
+        routed_url = server_url
+    else:
+        from backend.agents.llm_factory import get_routed_client
+        routed_url, _ = get_routed_client(query)
     client = AsyncOpenAI(base_url=routed_url, api_key="sk-no-key-required")
-    model_name = routed_model
+    model_name = _settings.vlm_model
 
     # 스킬을 OpenAI tool 형식으로 변환
     tools = []
@@ -324,6 +329,20 @@ async def invoke_agent_stream(
         tools.append(tool_def)
         skill_map[skill["name"]] = skill
 
+    # 사용자 소속 정보 조회
+    user_dept = ""
+    try:
+        iam_engine = IAMEngine(_settings.vault_root / "iam.yaml")
+        iam_data = iam_engine.as_dict()
+        for u in iam_data.get("users", []):
+            if u.get("user_id") == user_id:
+                dept_id = u.get("department", "")
+                dept_info = iam_data.get("departments", {}).get(dept_id, {})
+                user_dept = dept_info.get("name", dept_id)
+                break
+    except Exception:
+        pass
+
     # 메시지 구성 — 번호 매긴 출처 + 인라인 인용 지시
     numbered_sources = []
     for i, sn in enumerate(source_nodes, 1):
@@ -333,8 +352,10 @@ async def invoke_agent_stream(
             page = f" p.{sn['page_start']}"
             if sn.get("page_end") and sn["page_end"] != sn["page_start"]:
                 page += f"-{sn['page_end']}"
+        eff = sn.get("effective_date", "")
+        eff_str = f" [{eff}]" if eff else ""
         desc = sn.get("description", "")
-        numbered_sources.append(f"[{i}] {sn['name']} — {docs}{page}: {desc}")
+        numbered_sources.append(f"[{i}] {sn['name']} — {docs}{page}{eff_str}: {desc}")
 
     source_block = "\n".join(numbered_sources) if numbered_sources else ""
 
@@ -342,8 +363,11 @@ async def invoke_agent_stream(
         "당신은 금융/보험 도메인 전문 어시스턴트입니다. 한국어로 정확하고 친절하게 답변하세요.\n\n"
         "중요: 답변 시 정보의 출처를 [1], [2] 형태로 인라인 인용하세요.\n"
         "예: '보험료를 2회 이상 미납하면 계약이 해지될 수 있습니다[1].'\n"
-        "답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요."
+        "답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요.\n"
+        "약관/규정의 시행일이 표기되어 있으면 해당 날짜를 명시하세요."
     )
+    if user_dept:
+        system_prompt += f"\n\n사용자 소속: {user_dept}. 해당 부서에 관련된 사규/매뉴얼이 있으면 우선 참고하세요."
     if source_block:
         system_prompt += f"\n\n참고 출처:\n{source_block}"
     if graph_context:

@@ -3,6 +3,23 @@
 # Configuration as Code (RBAC + Ownership)
 # ──────────────────────────────────────
 
+departments:
+  life_insurance:
+    name: "생명보험사업부"
+    description: "생명보험 상품 개발 및 운영"
+  health_insurance:
+    name: "건강보험사업부"
+    description: "건강/의료보험 상품"
+  underwriting:
+    name: "심사부"
+    description: "보험 심사 및 언더라이팅"
+  compliance:
+    name: "준법감시부"
+    description: "규정 준수 및 감사"
+  it:
+    name: "IT부"
+    description: "시스템 개발 및 운영"
+
 roles:
   admin:
     description: "시스템 관리자"
@@ -10,11 +27,9 @@ roles:
       read:
         - "/Public/**"
         - "/Private/**"
-        - "/Skills/**"
       write:
         - "/Public/**"
         - "/Private/**"
-        - "/Skills/**"
 
   underwriter:
     description: "언더라이터 (심사역)"
@@ -22,7 +37,6 @@ roles:
       read:
         - "/Public/**"
         - "/Public/underwriting/**"
-        - "/Skills/**"
       write:
         - "/Public/underwriting/**"
 
@@ -31,7 +45,6 @@ roles:
     allowed_paths:
       read:
         - "/Public/**"
-        - "/Skills/**"
       write:
         - "/Public/reports/**"
 
@@ -46,15 +59,19 @@ users:
   - user_id: admin01
     roles: [admin]
     display_name: "시스템 관리자"
+    department: it
 
   - user_id: uw001
     roles: [underwriter]
     display_name: "김심사"
+    department: underwriting
 
   - user_id: analyst01
     roles: [analyst]
     display_name: "이분석"
+    department: life_insurance
 
   - user_id: user01
     roles: [viewer]
     display_name: "박조회"
+    department: health_insurance
