@@ -19,11 +19,14 @@ async function api(path: string, opts: RequestInit = {}) {
 
 interface Skill {
   skill_name: string
+  display_name?: string
   description: string
   endpoint: string
   method: string
   category: string
   params: Record<string, any>
+  inputs?: Record<string, any>
+  outputs?: Record<string, any>
   depends_on?: string[]
   body?: string
   installed?: boolean
@@ -44,9 +47,11 @@ const CATEGORY_TEXT: Record<string, string> = {
   custom: 'rgb(243,112,33)',
 }
 
-function SkillCard({ skill, onDelete, onEdit }: { skill: Skill; onDelete?: () => void; onEdit?: () => void }) {
+function SkillCard({ skill, onDelete, onEdit, showApi }: { skill: Skill; onDelete?: () => void; onEdit?: () => void; showApi?: boolean }) {
   const catColor = CATEGORY_COLORS[skill.category] || CATEGORY_COLORS.custom
   const catText = CATEGORY_TEXT[skill.category] || CATEGORY_TEXT.custom
+
+  const CATEGORY_LABELS: Record<string, string> = { search: '검색', analysis: '분석', report: '리포트', custom: '커스텀' }
 
   return (
     <motion.div
@@ -58,27 +63,32 @@ function SkillCard({ skill, onDelete, onEdit }: { skill: Skill; onDelete?: () =>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Wrench size={13} className="text-gold-500 shrink-0" />
-            <span className="text-sm font-semibold text-surface-900 truncate">{skill.skill_name}</span>
+            <span className="text-sm font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
             <span
-              className="px-1.5 py-0.5 rounded text-2xs font-mono font-semibold"
+              className="px-1.5 py-0.5 rounded text-2xs font-semibold"
               style={{ background: catColor, color: catText }}
             >
-              {skill.category}
+              {CATEGORY_LABELS[skill.category] || skill.category}
             </span>
           </div>
-          <p className="text-xs text-surface-600 line-clamp-2">{skill.description}</p>
-          <div className="flex items-center gap-2 mt-2 text-2xs font-mono text-surface-600">
-            <span className="tag tag-gold">{skill.method}</span>
-            <span className="truncate">{skill.endpoint}</span>
-          </div>
-          {Object.keys(skill.params || {}).length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {Object.entries(skill.params).map(([k, v]: [string, any]) => (
-                <span key={k} className="px-1.5 py-0.5 rounded text-2xs font-mono bg-surface-200 text-surface-700">
-                  {k}{v.required ? '*' : ''}: {v.type}
-                </span>
-              ))}
-            </div>
+          <p className="text-xs text-surface-700 line-clamp-2">{skill.description}</p>
+
+          {showApi && (
+            <>
+              <div className="flex items-center gap-2 mt-2 text-2xs font-mono text-surface-600">
+                <span className="tag tag-gold">{skill.method}</span>
+                <span className="truncate">{skill.endpoint}</span>
+              </div>
+              {Object.keys(skill.params || {}).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {Object.entries(skill.params).map(([k, v]: [string, any]) => (
+                    <span key={k} className="px-1.5 py-0.5 rounded text-2xs font-mono bg-surface-200 text-surface-700">
+                      {k}{v.required ? '*' : ''}: {v.type}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="flex gap-1 shrink-0">
@@ -133,6 +143,7 @@ export default function Skills() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [marketplace, setMarketplace] = useState<(Skill & { installed: boolean })[]>([])
   const [loading, setLoading] = useState(false)
+  const [showApi, setShowApi] = useState(false)
   const [editSkill, setEditSkill] = useState<Skill | null>(null)
 
   // 노코드 에디터 상태
@@ -272,6 +283,12 @@ export default function Skills() {
       {/* Manage tab */}
       {tab === 'manage' && (
         <div className="space-y-3">
+          <div className="flex items-center justify-end">
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-surface-600">
+              <input type="checkbox" checked={showApi} onChange={e => setShowApi(e.target.checked)} className="accent-gold-500" />
+              API 연동 정보 표시
+            </label>
+          </div>
           {loading ? (
             <div className="text-center py-12"><Loader2 size={20} className="animate-spin text-gold-500 mx-auto" /></div>
           ) : skills.length === 0 ? (
@@ -283,7 +300,7 @@ export default function Skills() {
           ) : (
             <AnimatePresence>
               {skills.map((s) => (
-                <SkillCard key={s.skill_name} skill={s} onEdit={() => openEditor(s)} onDelete={() => handleDelete(s.skill_name)} />
+                <SkillCard key={s.skill_name} skill={s} showApi={showApi} onEdit={() => openEditor(s)} onDelete={() => handleDelete(s.skill_name)} />
               ))}
             </AnimatePresence>
           )}
