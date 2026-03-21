@@ -7,6 +7,26 @@ method: POST
 owner: admin01
 category: custom
 depends_on: []
+inputs:
+  skill_name:
+    type: string
+    description: "스킬 이름"
+    label: "스킬 이름"
+  description:
+    type: string
+    description: "설명"
+    label: "설명"
+  endpoint:
+    type: string
+    description: "엔드포인트"
+    label: "엔드포인트"
+outputs:
+  created:
+    type: boolean
+    description: "생성 성공 여부"
+  skill_name:
+    type: string
+    description: "생성된 스킬 이름"
 params:
   skill_name:
     type: string

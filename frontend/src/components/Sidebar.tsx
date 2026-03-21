@@ -13,6 +13,7 @@ import {
   Wrench,
   Sun,
   Moon,
+  Workflow,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { useState, useEffect } from 'react'
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { to: '/', label: '대시보드', icon: LayoutDashboard, end: true },
   { to: '/vault', label: '볼트 탐색기', icon: FolderOpen },
   { to: '/agent', label: '에이전트 콘솔', icon: Bot },
+  { to: '/workflow', label: '워크플로우', icon: Workflow },
   { to: '/ingest', label: '문서 업로드', icon: UploadCloud },
   { to: '/search', label: '시맨틱 검색', icon: Search },
   { to: '/graph', label: '지식 그래프', icon: Network },

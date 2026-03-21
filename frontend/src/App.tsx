@@ -8,6 +8,7 @@ import Search from './pages/Search'
 import Admin from './pages/Admin'
 import KnowledgeGraph from './pages/KnowledgeGraph'
 import Skills from './pages/Skills'
+import WorkflowEditor from './pages/WorkflowEditor'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="vault" element={<VaultExplorer />} />
           <Route path="agent" element={<AgentConsole />} />
+          <Route path="workflow" element={<WorkflowEditor />} />
           <Route path="ingest" element={<Ingestion />} />
           <Route path="search" element={<Search />} />
           <Route path="admin" element={<Admin />} />
