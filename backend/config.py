@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     vlm_provider: str = "auto"  # "auto" | "anthropic" | "openai" | "claude_wrapper"
     claude_wrapper_url: str = "http://localhost:3000"  # claude-code-api-wrapper 서버
     ollama_base_url: str = "http://localhost:11434"  # Ollama 서버
+    llama_server_url: str = "http://localhost:8801/v1"  # llama-server OpenAI endpoint
+    # Smart Router: 질문 복잡도에 따라 다른 서버로 라우팅
+    llama_server_light: str = "http://localhost:8801/v1"   # 간단한 질문 (4B)
+    llama_server_heavy: str = ""                           # 복잡한 질문 (9B+ GPU 서버, 비어있으면 light와 동일)
+    smart_routing: bool = False                            # True면 자동 라우팅
     chroma_persist_dir: Path = Path("./data/chroma")
     sqlite_checkpoint_path: Path = Path("./data/checkpoints.db")
     log_level: str = "INFO"

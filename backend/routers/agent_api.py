@@ -13,6 +13,7 @@ from backend.agents.graph import invoke_agent, invoke_agent_stream
 from backend.agents.skill_parser import SkillRegistry
 from backend.security.prompt_guard import sanitize_input
 from backend.security.kill_switch import is_killed
+from backend.core.task_manager import task_manager, TaskInfo
 from backend.config import settings
 
 router = APIRouter()
@@ -31,20 +32,46 @@ async def run_agent(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
+    """백그라운드 태스크로 에이전트 실행. 즉시 task_id 반환."""
     if is_killed():
         return {"error": "System is in emergency shutdown mode"}
 
     safe_query = sanitize_input(body.query)
     roles = iam.get_user_roles(user_id)
 
-    result = await invoke_agent(
-        query=safe_query,
-        user_id=user_id,
-        user_roles=roles,
-        skill_registry=_registry,
-        thread_id=body.thread_id,
-    )
-    return result
+    async def _run(task: TaskInfo):
+        task.message = "에이전트 실행 중..."
+        task.total = 1
+
+        # 스트리밍으로 실행하여 토큰 누적
+        response_text = ""
+        metadata = {}
+        async for event in invoke_agent_stream(
+            query=safe_query,
+            user_id=user_id,
+            user_roles=roles,
+            skill_registry=_registry,
+            thread_id=body.thread_id,
+        ):
+            if event.get("type") == "metadata":
+                metadata = event
+            elif event.get("type") == "token":
+                response_text += event.get("content", "")
+            elif event.get("type") == "done":
+                break
+
+        task.progress = 1
+        task.result = {
+            "response": response_text,
+            "thread_id": metadata.get("thread_id", ""),
+            "execution_log": metadata.get("execution_log", []),
+            "reasoning": metadata.get("reasoning", ""),
+            "source_nodes": metadata.get("source_nodes", []),
+        }
+        task.message = "완료"
+
+    task_id = task_manager.submit(f"에이전트: {safe_query[:30]}", _run)
+    return {"status": "accepted", "task_id": task_id}
 
 
 @router.post("/stream")
@@ -53,6 +80,7 @@ async def stream_agent(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
+    """SSE 스트리밍 에이전트 실행 (실시간 토큰 표시)."""
     if is_killed():
         return {"error": "System is in emergency shutdown mode"}
 

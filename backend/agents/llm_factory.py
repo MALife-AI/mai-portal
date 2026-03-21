@@ -144,6 +144,54 @@ def create_chat_llm(
             num_predict=1024,
         )
 
+    if provider == "llama_server":
+        llama_url = getattr(settings, "llama_server_url", "http://localhost:8801/v1")
+        logger.info("LLM factory: using llama-server at %s, model=%s", llama_url, model_name)
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model_name,
+            api_key="sk-no-key-required",
+            base_url=llama_url,
+            temperature=temperature,
+            max_tokens=1024,
+        )
+
+
+def get_routed_client(query: str) -> tuple[str, str]:
+    """질문 복잡도에 따라 적절한 추론 서버 URL과 모델을 반환.
+
+    라우팅 기준:
+    - 간단한 질문 (< 50자, 인사/단순 조회) → light 서버 (4B)
+    - 복잡한 질문 (긴 질문, 분석/비교/Thinking 필요) → heavy 서버 (9B+)
+
+    Returns:
+        (base_url, model_name) 튜플
+    """
+    if not getattr(settings, "smart_routing", False):
+        url = getattr(settings, "llama_server_url", "http://localhost:8801/v1")
+        return url, settings.vlm_model
+
+    heavy_url = getattr(settings, "llama_server_heavy", "")
+    light_url = getattr(settings, "llama_server_light", "") or getattr(settings, "llama_server_url", "http://localhost:8801/v1")
+
+    if not heavy_url:
+        return light_url, settings.vlm_model
+
+    # 복잡도 판단
+    is_complex = (
+        len(query) > 100
+        or any(kw in query for kw in ["분석", "비교", "왜", "어떻게", "차이", "요약", "정리", "계산", "추론"])
+        or query.count("?") > 1
+        or "think" in query.lower()
+    )
+
+    if is_complex:
+        logger.info("Smart Router: complex query → heavy server (%s)", heavy_url)
+        return heavy_url, settings.vlm_model
+    else:
+        logger.info("Smart Router: simple query → light server (%s)", light_url)
+        return light_url, settings.vlm_model
+
     # 기본: OpenAI
     logger.info("LLM factory: using OpenAI model=%s", model_name)
     from langchain_openai import ChatOpenAI

@@ -20,6 +20,7 @@ import { agentApi, type ExecutionStep, type StreamCallbacks } from '@/api/client
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
 import { formatRelativeTime, generateId, cn } from '@/lib/utils'
 import { MarkdownViewer } from '@/components/MarkdownViewer'
+import { GraphOverlay } from '@/components/GraphOverlay'
 
 // ─── Execution Log Sidebar ────────────────────────────────────────────────────
 
@@ -179,6 +180,7 @@ function ExecutionLog({ steps, reasoning }: ExecutionLogProps) {
 function MessageBubble({ message }: { message: AgentMessage }) {
   const isUser = message.role === 'user'
   const [showLog, setShowLog] = useState(false)
+  const [graphOverlay, setGraphOverlay] = useState<{ focusIndex: number } | null>(null)
 
   return (
     <motion.div
@@ -222,7 +224,22 @@ function MessageBubble({ message }: { message: AgentMessage }) {
             {formatRelativeTime(message.timestamp)}
           </span>
 
-          {!isUser && (
+          {!isUser && message.source_nodes && message.source_nodes.length > 0 && (
+            <button
+              onClick={() => setGraphOverlay({ focusIndex: 0 })}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-semibold hover:opacity-80 transition-opacity cursor-pointer"
+              style={{
+                background: 'rgba(139, 92, 246, 0.12)',
+                color: 'rgb(139, 92, 246)',
+                border: '1px solid rgba(139, 92, 246, 0.25)',
+              }}
+              title="클릭하여 참조 그래프 보기"
+            >
+              <Brain size={9} />
+              GraphRAG
+            </button>
+          )}
+          {!isUser && (!message.source_nodes || message.source_nodes.length === 0) && (
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-semibold"
               style={{
@@ -247,32 +264,42 @@ function MessageBubble({ message }: { message: AgentMessage }) {
           )}
         </div>
 
-        {/* 출처: 엔티티 + 소스 문서 제목 */}
+        {/* 출처: 번호 매긴 엔티티 + 소스 문서 */}
         {!isUser && message.source_nodes && message.source_nodes.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-1">
-            {message.source_nodes.map((node) => (
-              <span
-                key={node.id}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-mono leading-tight"
-                style={{
-                  background: 'rgba(34, 197, 94, 0.08)',
-                  color: 'rgb(34, 197, 94)',
-                  border: '1px solid rgba(34, 197, 94, 0.2)',
-                }}
-                title={node.description || node.name}
-              >
-                <span style={{ fontSize: '9px' }}>⬡</span>
-                <span className="font-semibold">{node.name}</span>
-                {node.source_titles.length > 0 && (
-                  <span className="text-surface-600" style={{ fontSize: '9px' }}>
-                    | {node.source_titles[0]}{node.source_titles.length > 1 ? ` 외 ${node.source_titles.length - 1}건` : ''}
-                    {node.page_start != null && (
-                      <> p.{node.page_start}{node.page_end != null && node.page_end !== node.page_start ? `-${node.page_end}` : ''}</>
-                    )}
+            {message.source_nodes.map((node, idx) => {
+              const colors = ['#F37021','#4A90D9','#34C759','#AF52DE','#FF3B30','#5AC8FA','#FFCC00','#FF2D55','#64D2FF','#30D158']
+              const color = colors[idx % colors.length]
+              return (
+                <button
+                  key={node.id}
+                  onClick={() => setGraphOverlay({ focusIndex: idx })}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-mono leading-tight hover:opacity-80 transition-opacity cursor-pointer"
+                  style={{
+                    background: `${color}14`,
+                    color: color,
+                    border: `1px solid ${color}33`,
+                  }}
+                  title={node.description || node.name}
+                >
+                  <span
+                    className="inline-flex items-center justify-center rounded font-bold"
+                    style={{ fontSize: '8px', width: '14px', height: '14px', background: `${color}33` }}
+                  >
+                    {idx + 1}
                   </span>
-                )}
-              </span>
-            ))}
+                  <span className="font-semibold">{node.name}</span>
+                  {node.source_titles.length > 0 && (
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: '9px' }}>
+                      | {node.source_titles[0]}{node.source_titles.length > 1 ? ` 외 ${node.source_titles.length - 1}건` : ''}
+                      {node.page_start != null && (
+                        <> p.{node.page_start}{node.page_end != null && node.page_end !== node.page_start ? `-${node.page_end}` : ''}</>
+                      )}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         )}
 
@@ -285,6 +312,15 @@ function MessageBubble({ message }: { message: AgentMessage }) {
           >
             <ExecutionLog steps={message.execution_log} reasoning={message.reasoning} />
           </motion.div>
+        )}
+
+        {/* Graph overlay */}
+        {graphOverlay && message.source_nodes && message.source_nodes.length > 0 && (
+          <GraphOverlay
+            sourceNodes={message.source_nodes}
+            focusIndex={graphOverlay.focusIndex}
+            onClose={() => setGraphOverlay(null)}
+          />
         )}
       </div>
     </motion.div>
@@ -361,6 +397,27 @@ export default function AgentConsole() {
   const [showExecSidebar, setShowExecSidebar] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // 추론 서버 상태 + 모델 선택
+  interface ServerInfo { id: string; name: string; model: string; url: string; description: string; online: boolean; signal: string; label: string; load_pct: number }
+  const [servers, setServers] = useState<ServerInfo[]>([])
+  const [selectedServer, setSelectedServer] = useState<string>('local')
+
+  useEffect(() => {
+    async function fetchStatus() {
+      try {
+        const uid = localStorage.getItem('malife_user_id') || 'admin01'
+        const r = await fetch('/api/v1/admin/inference-status', { headers: { 'X-User-Id': uid } })
+        if (r.ok) {
+          const d = await r.json()
+          setServers(d.servers || [])
+        }
+      } catch { /* ignore */ }
+    }
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 15000) // 15초마다 갱신
+    return () => clearInterval(interval)
+  }, [])
 
   const activeThread = getActiveThread()
   const lastAgentMessage = activeThread?.messages.slice().reverse().find((m: AgentMessage) => m.role === 'agent')

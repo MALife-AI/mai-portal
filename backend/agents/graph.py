@@ -242,46 +242,19 @@ async def invoke_agent_stream(
     skill_registry: SkillRegistry,
     thread_id: str | None = None,
 ):
-    """스트리밍 에이전트 실행 — SSE 이벤트 dict를 yield."""
-    from backend.agents.llm_factory import create_chat_llm
-    from backend.agents.nodes import (
-        route_node, plan_node, execute_skill_node,
-        audit_node, should_continue, build_respond_messages,
-    )
+    """Unsloth 스타일 auto-healing tool calling + GraphRAG + 스트리밍."""
+    import json as _json
+    from backend.config import settings as _settings
 
-    llm = create_chat_llm()
     _thread_id = thread_id or f"{user_id}-{datetime.now(timezone.utc).isoformat()}"
 
-    state: dict[str, Any] = {
-        "messages": [HumanMessage(content=query)],
-        "user_id": user_id,
-        "user_roles": user_roles,
-        "plan": [],
-        "execution_log": [],
-        "current_step": 0,
-        "reasoning": "",
-        "error": None,
-    }
-
-    # ── 파이프라인 수동 실행 (respond 제외) ──────────────────────────
-    state = await route_node(state, llm, skill_registry)
-    state = await _guard_node(state, skill_registry)
-
-    if not state.get("error"):
-        state = await plan_node(state, llm, skill_registry)
-        while should_continue(state) == "continue":
-            state = await execute_skill_node(state, skill_registry)
-
-    state = await audit_node(state)
-
-    # ── GraphRAG 쿼리 기반 출처 검색 ─────────────────────────────────
+    # ── GraphRAG 컨텍스트 검색 ────────────────────────────────────────
     source_nodes: list[dict[str, Any]] = []
     graph_context: str = ""
     try:
         from backend.graph.store import GraphStore
         from backend.graph.graphrag import GraphRAGEngine
         from backend.core.iam import IAMEngine
-        from backend.config import settings as _settings
 
         persist_path = _settings.vault_root / ".graph" / "knowledge_graph.json"
         store = GraphStore(persist_path=persist_path)
@@ -289,14 +262,10 @@ async def invoke_agent_stream(
         engine = GraphRAGEngine(graph_store=store, iam_engine=iam)
 
         rag_result = await engine.search(
-            query=query,
-            user_id=user_id,
-            user_roles=user_roles,
-            mode="hybrid",
-            n_results=5,
+            query=query, user_id=user_id, user_roles=user_roles,
+            mode="hybrid", n_results=5,
         )
 
-        # 매칭된 엔티티 → 출처 노드
         seen_ids: set[str] = set()
         for e in rag_result.matched_entities + rag_result.related_entities:
             eid = e.get("id") or e.get("name", "")
@@ -319,34 +288,155 @@ async def invoke_agent_stream(
             if len(source_nodes) >= 5:
                 break
 
-        # GraphRAG 컨텍스트를 LLM 프롬프트에 주입
         graph_context = rag_result.combined_context or ""
     except Exception:
         logger.debug("GraphRAG search failed (non-fatal)", exc_info=True)
 
+    # ── 메타데이터 전송 ──────────────────────────────────────────────
     yield {
         "type": "metadata",
         "thread_id": _thread_id,
-        "execution_log": state.get("execution_log", []),
-        "reasoning": state.get("reasoning", ""),
+        "execution_log": [],
+        "reasoning": "",
         "source_nodes": source_nodes,
     }
 
-    # ── LLM 응답 스트리밍 (GraphRAG 컨텍스트 주입) ──────────────────
-    messages = build_respond_messages(state)
+    # ── OpenAI tool calling (Unsloth auto-healing loop) ──────────────
+    from openai import AsyncOpenAI
+    from backend.agents.llm_factory import get_routed_client
+
+    routed_url, routed_model = get_routed_client(query)
+    client = AsyncOpenAI(base_url=routed_url, api_key="sk-no-key-required")
+    model_name = routed_model
+
+    # 스킬을 OpenAI tool 형식으로 변환
+    tools = []
+    skill_map: dict[str, Any] = {}
+    for skill in skill_registry.list_skills():
+        tool_def = {
+            "type": "function",
+            "function": {
+                "name": skill["name"],
+                "description": skill.get("description", ""),
+                "parameters": skill.get("params_schema", {"type": "object", "properties": {}}),
+            },
+        }
+        tools.append(tool_def)
+        skill_map[skill["name"]] = skill
+
+    # 메시지 구성 — 번호 매긴 출처 + 인라인 인용 지시
+    numbered_sources = []
+    for i, sn in enumerate(source_nodes, 1):
+        docs = ", ".join(sn.get("source_titles", []))
+        page = ""
+        if sn.get("page_start"):
+            page = f" p.{sn['page_start']}"
+            if sn.get("page_end") and sn["page_end"] != sn["page_start"]:
+                page += f"-{sn['page_end']}"
+        desc = sn.get("description", "")
+        numbered_sources.append(f"[{i}] {sn['name']} — {docs}{page}: {desc}")
+
+    source_block = "\n".join(numbered_sources) if numbered_sources else ""
+
+    system_prompt = (
+        "당신은 금융/보험 도메인 전문 어시스턴트입니다. 한국어로 정확하고 친절하게 답변하세요.\n\n"
+        "중요: 답변 시 정보의 출처를 [1], [2] 형태로 인라인 인용하세요.\n"
+        "예: '보험료를 2회 이상 미납하면 계약이 해지될 수 있습니다[1].'\n"
+        "답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요."
+    )
+    if source_block:
+        system_prompt += f"\n\n참고 출처:\n{source_block}"
     if graph_context:
-        messages.insert(-1, {
-            "role": "system",
-            "content": (
-                "다음은 지식그래프에서 검색된 관련 컨텍스트입니다. "
-                "이 정보를 우선적으로 참고하여 답변하세요:\n\n"
-                f"{graph_context[:3000]}"
-            ),
-        })
-    async for chunk in llm.astream(messages):
-        content = chunk.content if hasattr(chunk, "content") else str(chunk)
-        if content:
-            yield {"type": "token", "content": content}
+        system_prompt += (
+            f"\n\n관련 컨텍스트:\n{graph_context[:2500]}"
+        )
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": query},
+    ]
+
+    # ── Auto-healing tool calling loop ────────────────────────────────
+    max_iterations = 5
+    for _ in range(max_iterations):
+        try:
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                tools=tools if tools else None,
+                tool_choice="auto" if tools else None,
+                max_tokens=1024,
+                temperature=0.7,
+                stream=True,
+            )
+
+            # 스트리밍 응답 처리
+            tool_calls_acc: list[dict[str, Any]] = []
+            async for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+
+                # 텍스트 토큰
+                if delta.content:
+                    yield {"type": "token", "content": delta.content}
+
+                # tool call 누적
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        while len(tool_calls_acc) <= idx:
+                            tool_calls_acc.append({"id": "", "name": "", "arguments": ""})
+                        if tc.id:
+                            tool_calls_acc[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_acc[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_acc[idx]["arguments"] += tc.function.arguments
+
+            # tool call이 없으면 종료
+            if not tool_calls_acc:
+                break
+
+            # tool call 실행
+            messages.append({
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                    }
+                    for tc in tool_calls_acc
+                ],
+            })
+
+            for tc in tool_calls_acc:
+                try:
+                    tool = skill_registry.get_tool(tc["name"])
+                    if tool:
+                        args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        result = await tool.ainvoke(args)
+                        result_str = str(result)[:2000]
+                    else:
+                        result_str = f"Tool '{tc['name']}' not found"
+                except Exception as exc:
+                    result_str = f"Tool error: {exc}"
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "name": tc["name"],
+                    "content": result_str,
+                })
+
+            yield {"type": "token", "content": f"\n\n> 🔧 {', '.join(tc['name'] for tc in tool_calls_acc)} 실행 완료\n\n"}
+
+        except Exception as exc:
+            logger.error("Tool calling loop error: %s", exc)
+            yield {"type": "token", "content": f"\n\n오류: {exc}"}
+            break
 
     yield {"type": "done"}
 

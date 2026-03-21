@@ -1,0 +1,60 @@
+# ─── GPU Inference Server ──────────────────────────────────────────
+# llama-server + Unsloth GGUF 모델
+#
+# 빌드:
+#   CUDA:  docker build -f Dockerfile.inference --build-arg GPU=cuda -t malife-inference .
+#   CPU:   docker build -f Dockerfile.inference --build-arg GPU=off  -t malife-inference .
+#
+# 실행:
+#   CUDA:  docker run --gpus all -p 8801:8801 -v ./models:/models malife-inference
+#   CPU:   docker run -p 8801:8801 -v ./models:/models malife-inference
+#
+# 모델 다운로드 (호스트에서):
+#   huggingface-cli download unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q8_0.gguf --local-dir ./models
+
+ARG GPU=cuda
+
+# ─── Base: build llama.cpp ────────────────────────────────────────
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build-cuda
+RUN apt-get update && apt-get install -y cmake git curl libcurl4-openssl-dev && \
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp /llama.cpp && \
+    cmake /llama.cpp -B /llama.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DLLAMA_CURL=ON && \
+    cmake --build /llama.cpp/build --config Release -j$(nproc) --target llama-server
+
+FROM ubuntu:22.04 AS build-off
+RUN apt-get update && apt-get install -y cmake git curl libcurl4-openssl-dev build-essential && \
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp /llama.cpp && \
+    cmake /llama.cpp -B /llama.cpp/build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF -DLLAMA_CURL=ON && \
+    cmake --build /llama.cpp/build --config Release -j$(nproc) --target llama-server
+
+# ─── Runtime ──────────────────────────────────────────────────────
+FROM build-${GPU} AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates libcurl4 && \
+    rm -rf /var/lib/apt/lists/*
+
+# 모델은 볼륨 마운트로 주입
+VOLUME /models
+
+ENV MODEL_PATH=/models/Qwen3.5-4B-Q8_0.gguf
+ENV MODEL_ALIAS=qwen3.5-4b
+ENV CTX_SIZE=16384
+ENV PORT=8801
+ENV GPU_LAYERS=999
+
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=30s --timeout=5s \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["/llama.cpp/build/bin/llama-server \
+    --model ${MODEL_PATH} \
+    --alias ${MODEL_ALIAS} \
+    --threads -1 \
+    --n-gpu-layers ${GPU_LAYERS} \
+    --ctx-size ${CTX_SIZE} \
+    --port ${PORT} \
+    --host 0.0.0.0 \
+    --jinja"]

@@ -3,7 +3,9 @@
 @tailwind utilities;
 
 /* ─── CSS Custom Properties ─────────────────────────────────────────────── */
-:root {
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
   --color-bg-primary: #0f1729;
   --color-bg-secondary: #141e33;
   --color-bg-tertiary: #1a2640;
@@ -19,6 +21,27 @@
   --color-success: #34C759;
   --color-warning: #F5A623;
   --color-error: #FF3B30;
+  --sidebar-width: 240px;
+  --header-height: 56px;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --color-bg-primary: #f5f7fa;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #edf0f5;
+  --color-bg-elevated: #ffffff;
+  --color-border: #d8dde6;
+  --color-border-subtle: #e8ecf1;
+  --color-text-primary: #1a2233;
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #8896a8;
+  --color-gold: #E06010;
+  --color-gold-dim: #c44e0c;
+  --color-blue: #3b7dd8;
+  --color-success: #22a84d;
+  --color-warning: #d4901a;
+  --color-error: #e53030;
   --sidebar-width: 240px;
   --header-height: 56px;
 }

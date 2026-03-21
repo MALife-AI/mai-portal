@@ -10,9 +10,12 @@ import {
   ChevronDown,
   User,
   Network,
+  Wrench,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
@@ -22,10 +25,35 @@ const NAV_ITEMS = [
   { to: '/ingest', label: '문서 업로드', icon: UploadCloud },
   { to: '/search', label: '시맨틱 검색', icon: Search },
   { to: '/graph', label: '지식 그래프', icon: Network },
+  { to: '/skills', label: '스킬', icon: Wrench },
   { to: '/admin', label: '관리 패널', icon: ShieldCheck },
 ]
 
 const DEMO_USERS = ['admin01', 'user01', 'analyst01', 'viewer01']
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('malife_theme') as 'dark' | 'light') || 'dark'
+    }
+    return 'dark'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('malife_theme', theme)
+  }, [theme])
+
+  return (
+    <button
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100 transition-colors text-surface-600 hover:text-surface-900"
+    >
+      {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+      <span className="text-xs">{theme === 'dark' ? '라이트 모드' : '다크 모드'}</span>
+    </button>
+  )
+}
 
 export function Sidebar() {
   const { userId, setUserId, killSwitchActive } = useStore()
@@ -113,6 +141,11 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Theme toggle */}
+      <div className="px-3 py-2">
+        <ThemeToggle />
+      </div>
 
       {/* Divider */}
       <div className="gold-divider mx-3" />

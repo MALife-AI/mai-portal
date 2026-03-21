@@ -33,8 +33,8 @@ class CircularDependencyError(Exception):
 class SkillRegistry:
     """Vault 내 type:skill 마크다운을 스캔하여 Tool 객체로 관리."""
 
-    def __init__(self, vault_root: Path | None = None) -> None:
-        self._vault = vault_root or settings.vault_root
+    def __init__(self, skills_dir: Path | None = None) -> None:
+        self._skills_dir = skills_dir or Path(settings.vault_root).parent / "data" / "skills"
         self._skills: dict[str, dict[str, Any]] = {}
         self._tools: dict[str, StructuredTool] = {}
 
@@ -43,8 +43,8 @@ class SkillRegistry:
     # ------------------------------------------------------------------
 
     def load_all(self) -> None:
-        """Skills/ 디렉토리를 스캔하여 모든 스킬을 로드."""
-        skills_dir = self._vault / "Skills"
+        """data/skills/ 디렉토리를 스캔하여 모든 스킬을 로드."""
+        skills_dir = self._skills_dir
         if not skills_dir.exists():
             return
 

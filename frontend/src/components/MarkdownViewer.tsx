@@ -15,6 +15,51 @@ function processWikiLinks(content: string): string {
   })
 }
 
+// Citation colors for [1], [2], etc.
+const CITE_COLORS = [
+  '#F37021', '#4A90D9', '#34C759', '#AF52DE', '#FF3B30',
+  '#5AC8FA', '#FFCC00', '#FF2D55', '#64D2FF', '#30D158',
+]
+
+function renderCitations(children: React.ReactNode): React.ReactNode {
+  if (!children) return children
+  const arr = Array.isArray(children) ? children : [children]
+  return arr.map((child, i) => {
+    if (typeof child !== 'string') return child
+    // Split on citation pattern [1], [2], etc.
+    const parts = child.split(/(\[\d+\])/)
+    if (parts.length <= 1) return child
+    return parts.map((part, j) => {
+      const m = part.match(/^\[(\d+)\]$/)
+      if (m) {
+        const idx = parseInt(m[1], 10)
+        const color = CITE_COLORS[(idx - 1) % CITE_COLORS.length]
+        return (
+          <span
+            key={`${i}-${j}`}
+            className="inline-flex items-center justify-center rounded font-mono font-bold cursor-default"
+            style={{
+              fontSize: '9px',
+              lineHeight: 1,
+              padding: '2px 4px',
+              marginLeft: '1px',
+              marginRight: '1px',
+              background: `${color}22`,
+              color: color,
+              border: `1px solid ${color}44`,
+              verticalAlign: 'super',
+            }}
+            title={`출처 ${idx}`}
+          >
+            {idx}
+          </span>
+        )
+      }
+      return part
+    })
+  })
+}
+
 export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps) {
   const navigate = useNavigate()
   const setSelectedVaultPath = useStore((s) => s.setSelectedVaultPath)
@@ -89,6 +134,8 @@ export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps)
               <table>{children}</table>
             </div>
           ),
+          p: ({ children }) => <p>{renderCitations(children)}</p>,
+          li: ({ children }) => <li>{renderCitations(children)}</li>,
         }}
       >
         {processedContent}

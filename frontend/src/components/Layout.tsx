@@ -10,6 +10,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/agent': '에이전트 콘솔',
   '/ingest': '문서 업로드',
   '/search': '시맨틱 검색',
+  '/skills': '스킬',
   '/admin': '관리 패널',
 }
 
