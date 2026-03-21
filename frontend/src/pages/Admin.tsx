@@ -350,28 +350,40 @@ function ModelTab() {
 
   return (
     <div className="space-y-6">
-      {/* 기본 모델 설정 */}
+      {/* 기본 추론 서버 선택 */}
       <div>
-        <p className="text-sm font-semibold text-surface-900 mb-3">기본 LLM 설정</p>
-        <div className="panel p-4 space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase">Provider</label>
-              <select value={provider} onChange={e => setProvider(e.target.value)} className="input-field w-full mt-1 text-xs">
-                <option value="llama_server">llama-server (Unsloth GGUF)</option>
-                <option value="ollama">Ollama</option>
-                <option value="claude_wrapper">Claude Wrapper</option>
-                <option value="openai">OpenAI</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase">모델</label>
-              <input value={model} onChange={e => setModel(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
-            </div>
-            <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase">기본 서버 URL</label>
-              <input value={url} onChange={e => setUrl(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
-            </div>
+        <p className="text-sm font-semibold text-surface-900 mb-3">기본 추론 서버</p>
+        <div className="panel p-4 space-y-3">
+          <p className="text-xs text-surface-600">에이전트가 기본으로 사용할 GPU 서버를 선택하세요.</p>
+          <div className="space-y-2">
+            {gpuServers.map((srv: any) => (
+              <label
+                key={srv.id}
+                className={cn(
+                  'flex items-center gap-3 p-3 rounded-md cursor-pointer transition-colors',
+                  url === srv.url
+                    ? 'bg-gold-500/10 border border-gold-500/40'
+                    : 'hover:bg-surface-200 border border-transparent',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="default-server"
+                  checked={url === srv.url}
+                  onChange={() => { setUrl(srv.url); setModel(srv.model); setProvider('llama_server') }}
+                  className="accent-gold-500"
+                />
+                <Server size={14} className="text-gold-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-surface-900">{srv.name}</p>
+                  <p className="text-2xs text-surface-600 font-mono truncate">{srv.url}</p>
+                </div>
+                <span className="tag tag-gold text-2xs shrink-0">{srv.model}</span>
+              </label>
+            ))}
+            {gpuServers.length === 0 && (
+              <p className="text-xs text-surface-600 text-center py-4">등록된 GPU 서버가 없습니다. 아래에서 추가하세요.</p>
+            )}
           </div>
           <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
         </div>
