@@ -199,7 +199,7 @@ export default function Ingestion() {
   const toast = useToast()
   const { userId } = useStore()
 
-  const [destBase, setDestBase] = useState<'Shared' | 'Private'>'Shared'
+  const [destBase, setDestBase] = useState<'Shared' | 'Private'>('Shared')
   const [jobs, setJobs] = useState<UploadJob[]>([])
   const [folderJobs, setFolderJobs] = useState<FolderUploadJob[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -509,20 +509,12 @@ export default function Ingestion() {
     [destBase, userId, updateJob],
   )
 
-  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
+  const dropzone = useDropzone({
     onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'application/vnd.hancom.hwp': ['.hwp'],
-      'application/vnd.ms-powerpoint': ['.pptx', '.ppt'],
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt'],
-      'text/markdown': ['.md'],
-    },
-    maxSize: 50 * 1024 * 1024, // 50MB
+    maxSize: 50 * 1024 * 1024,
     disabled: isUploading,
   })
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = dropzone
 
   const completedJobs = jobs.filter((j) => j.status === 'success' || j.status === 'error')
   const activeJobs = jobs.filter((j) => j.status === 'queued' || j.status === 'uploading')
