@@ -6,3 +6,4 @@ data/
 .venv/
 dist/
 .claude/
+vault/assets/
