@@ -310,7 +310,16 @@ async def update_model_config(
         if k not in updated_keys:
             new_lines.append(f"{k}={v}")
     env_path.write_text("\n".join(new_lines) + "\n")
-    return {"status": "updated", "note": "서버 재시작 필요"}
+
+    # 런타임 즉시 반영
+    settings.vlm_provider = body.vlm_provider
+    settings.vlm_model = body.vlm_model
+    settings.llama_server_url = body.llama_server_url
+    settings.smart_routing = body.smart_routing
+    settings.llama_server_light = body.llama_server_light
+    settings.llama_server_heavy = body.llama_server_heavy
+
+    return {"status": "updated"}
 
 
 # ─── 사용량 메트릭 ────────────────────────────────────────────────────────────

@@ -326,7 +326,8 @@ function ModelTab() {
         llama_server_heavy: heavyUrl,
       }),
     })
-    toast.success('모델 설정 저장', '서버 재시작 후 적용됩니다')
+    toast.success('모델 설정 저장', '즉시 반영되었습니다')
+    fetchConfig()
   }
 
   async function addServer() {
@@ -469,7 +470,9 @@ function ModelTab() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="tag tag-gold text-2xs">{srv.model}</span>
-                {srv.id !== 'local' && (
+                {url === srv.url ? (
+                  <span className="text-2xs text-gold-500 font-semibold">기본</span>
+                ) : (
                   <button onClick={() => removeServer(srv.id)} className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-status-error hover:bg-surface-200">
                     <XCircle size={13} />
                   </button>
