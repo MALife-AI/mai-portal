@@ -16,6 +16,8 @@ import {
   MarkerType,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+
+/* React Flow 스타일은 index.css의 .workflow-canvas 섹션에 정의 */
 import {
   Play, Save, Trash2, Plus, Loader2, ChevronRight,
   Wrench, Zap, ArrowRight, GripVertical, Settings2, Cpu,
@@ -571,21 +573,14 @@ export default function WorkflowEditor() {
             <button
               key={skill.skill_name}
               onClick={() => addSkillNode(skill)}
-              className="w-full text-left p-2 rounded-md hover:bg-surface-200 transition-colors group"
+              className="w-full text-left p-2.5 rounded-md hover:bg-surface-200 transition-colors group"
               style={{ border: '1px solid var(--color-border)' }}
             >
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: catColor }} />
-                <span className="text-xs font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
+                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: catColor }} />
+                <span className="text-sm font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
               </div>
-              <p className="text-2xs text-surface-600 line-clamp-1 mt-0.5 ml-4">{skill.description}</p>
-              {skill.inputs && (
-                <div className="flex gap-1 mt-1 ml-4">
-                  {Object.keys(skill.inputs).map(k => (
-                    <span key={k} className="text-2xs font-mono px-1 rounded bg-surface-200 text-surface-700">{k}</span>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs text-surface-600 line-clamp-2 mt-1 ml-5">{skill.description}</p>
             </button>
           )
         })}
@@ -639,7 +634,7 @@ export default function WorkflowEditor() {
         </div>
 
         {/* React Flow */}
-        <div className="w-full h-full pt-10">
+        <div className="w-full h-full pt-10 workflow-canvas">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -647,6 +642,7 @@ export default function WorkflowEditor() {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
+            deleteKeyCode={['Backspace', 'Delete']}
             fitView
             className="bg-surface-DEFAULT"
             defaultEdgeOptions={{
@@ -656,12 +652,9 @@ export default function WorkflowEditor() {
             }}
           >
             <Background color="var(--color-border)" gap={20} />
-            <Controls
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', borderRadius: 6 }}
-            />
+            <Controls />
             <MiniMap
               nodeColor={(n) => CATEGORY_COLORS[(n.data?.category as string)] || '#6b829e'}
-              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', borderRadius: 6 }}
             />
           </ReactFlow>
         </div>

@@ -33,9 +33,9 @@
   --color-bg-elevated: #ffffff;
   --color-border: #d8dde6;
   --color-border-subtle: #e8ecf1;
-  --color-text-primary: #1a2233;
-  --color-text-secondary: #3d4d5e;
-  --color-text-muted: #5a6b7e;
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #4b5563;
   --color-gold: #E06010;
   --color-gold-dim: #c44e0c;
   --color-blue: #3b7dd8;
@@ -54,7 +54,7 @@
 }
 
 html {
-  font-size: 14px;
+  font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -103,7 +103,7 @@ body {
 
 /* ─── Typography ─────────────────────────────────────────────────────────── */
 .font-display {
-  font-family: 'Playfair Display', serif;
+  font-family: 'Space Grotesk', 'Pretendard', sans-serif;
 }
 
 .font-mono {
@@ -189,7 +189,7 @@ body {
 .markdown-content h2,
 .markdown-content h3,
 .markdown-content h4 {
-  font-family: 'Playfair Display', serif;
+  font-family: 'Space Grotesk', 'Pretendard', sans-serif;
   color: #e8edf4;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -719,4 +719,44 @@ body {
 
 .metric-card:hover::after {
   opacity: 1;
+}
+
+/* ─── React Flow Dark Theme ─────────────────────────────────────────────── */
+.workflow-canvas .react-flow__node.selected > div {
+  box-shadow: 0 0 0 2px var(--color-gold) !important;
+  border-color: var(--color-gold) !important;
+}
+.workflow-canvas .react-flow__node.selected,
+.workflow-canvas .react-flow__node:focus,
+.workflow-canvas .react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.workflow-canvas .react-flow__controls {
+  background: var(--color-bg-secondary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+}
+.workflow-canvas .react-flow__controls button {
+  background: var(--color-bg-secondary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+.workflow-canvas .react-flow__controls button svg {
+  fill: var(--color-text-secondary) !important;
+}
+.workflow-canvas .react-flow__controls button:hover {
+  background: var(--color-bg-elevated) !important;
+}
+.workflow-canvas .react-flow__minimap {
+  background: var(--color-bg-secondary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+}
+.workflow-canvas .react-flow__attribution {
+  display: none !important;
+}
+.workflow-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-gold) !important;
 }

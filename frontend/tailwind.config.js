@@ -54,7 +54,7 @@ export default {
       fontFamily: {
         pretendard: ['Pretendard', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
-        display: ['Playfair Display', 'serif'],
+        display: ['Space Grotesk', 'Pretendard', 'sans-serif'],
       },
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '0.875rem' }],
