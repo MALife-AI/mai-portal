@@ -314,20 +314,37 @@ function ModelTab() {
 
   useEffect(() => { fetchConfig() }, [fetchConfig])
 
+  const [isSavingModel, setIsSavingModel] = useState(false)
+
   async function handleSave() {
-    await api('/api/v1/admin/model-config', {
-      method: 'PUT',
-      body: JSON.stringify({
-        vlm_provider: provider,
-        vlm_model: model,
-        llama_server_url: url,
-        smart_routing: smartRouting,
-        llama_server_light: lightUrl,
-        llama_server_heavy: heavyUrl,
-      }),
-    })
-    toast.success('모델 설정 저장', '즉시 반영되었습니다')
-    fetchConfig()
+    setIsSavingModel(true)
+    try {
+      await api('/api/v1/admin/model-config', {
+        method: 'PUT',
+        body: JSON.stringify({
+          vlm_provider: provider,
+          vlm_model: model,
+          llama_server_url: url,
+          smart_routing: smartRouting,
+          llama_server_light: lightUrl,
+          llama_server_heavy: heavyUrl,
+        }),
+      })
+      // health check로 서버 정상 확인
+      await new Promise(r => setTimeout(r, 1000))
+      for (let i = 0; i < 10; i++) {
+        try {
+          const r = await fetch('/health')
+          if (r.ok) break
+        } catch { /* retry */ }
+        await new Promise(r => setTimeout(r, 500))
+      }
+      toast.success('모델 설정 저장', '적용 완료')
+      fetchConfig()
+    } catch (e) {
+      toast.error('저장 실패', String(e))
+    }
+    setIsSavingModel(false)
   }
 
   async function addServer() {
@@ -386,7 +403,7 @@ function ModelTab() {
               <p className="text-xs text-surface-600 text-center py-4">등록된 GPU 서버가 없습니다. 아래에서 추가하세요.</p>
             )}
           </div>
-          <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
+          <button onClick={handleSave} disabled={isSavingModel} className="btn-primary text-xs flex items-center gap-1">{isSavingModel ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} {isSavingModel ? "적용 중..." : "저장"}</button>
         </div>
       </div>
 
@@ -450,7 +467,7 @@ function ModelTab() {
             </div>
           )}
 
-          <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
+          <button onClick={handleSave} disabled={isSavingModel} className="btn-primary text-xs flex items-center gap-1">{isSavingModel ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} {isSavingModel ? "적용 중..." : "저장"}</button>
         </div>
       </div>
 
@@ -1132,7 +1149,7 @@ function DepartmentsTab() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
+            <button onClick={handleSave} disabled={isSavingModel} className="btn-primary text-xs flex items-center gap-1">{isSavingModel ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} {isSavingModel ? "적용 중..." : "저장"}</button>
             <button onClick={cancelEdit} className="btn-secondary text-xs">취소</button>
           </div>
         </div>
