@@ -77,8 +77,8 @@ export function Sidebar() {
           className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
           style={{ background: 'linear-gradient(135deg, #F37021, #b34c10)' }}
         >
-          <span className="font-display font-bold text-white" style={{ fontSize: '0.875rem' }}>
-            MA
+          <span className="font-display font-bold text-white" style={{ fontSize: '0.75rem' }}>
+            M:AI
           </span>
         </div>
         <div className="min-w-0">
@@ -86,7 +86,7 @@ export function Sidebar() {
             className="font-display font-semibold text-surface-900 leading-none"
             style={{ fontSize: '0.875rem' }}
           >
-            미래에셋 Lake
+            M:AI Portal
           </p>
           <p className="text-2xs text-surface-600 mt-0.5 font-mono">Secure Agentic RAG</p>
         </div>

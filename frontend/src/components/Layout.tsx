@@ -38,7 +38,7 @@ export function Layout() {
             <span
               className="text-2xs font-mono text-surface-600 uppercase tracking-widest"
             >
-              미래에셋 Lake
+              M:AI PORTAL
             </span>
             <span className="text-surface-600">/</span>
             <h1

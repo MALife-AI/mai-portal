@@ -584,7 +584,7 @@ export default function AgentConsole() {
           <div className="flex items-center gap-2">
             <Bot size={15} className="text-gold-500" />
             <span className="text-sm font-semibold text-surface-900">
-              {activeThread?.title ?? '미래에셋 에이전트'}
+              {activeThread?.title ?? 'M:AI 에이전트'}
             </span>
             {isRunning && (
               <span className="flex items-center gap-1 text-xs text-gold-500">
@@ -619,7 +619,7 @@ export default function AgentConsole() {
                     <Bot size={28} className="text-gold-500" />
                   </div>
                   <h3 className="font-display font-semibold text-surface-800 text-xl mb-2">
-                    미래에셋 에이전트
+                    M:AI 에이전트
                   </h3>
                   <p className="text-sm text-surface-600 max-w-sm mb-6">
                     금융 문서 분석, RAG 검색, 스킬 실행까지. 무엇이든 물어보세요.
