@@ -6,15 +6,13 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/store/useStore'
+import { getUserId } from '@/api/client'
 
 const API = ''
-function uid() {
-  try { return localStorage.getItem('malife_user_id') ?? 'admin01' } catch { return 'admin01' }
-}
 async function api(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, {
     ...opts,
-    headers: { 'X-User-Id': uid(), 'Content-Type': 'application/json', ...opts.headers },
+    headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json', ...opts.headers },
   })
   return r.json()
 }

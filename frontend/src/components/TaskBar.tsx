@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, X, CheckCircle2, XCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { getUserId } from '@/api/client'
 
 const API_BASE = ''
 
@@ -12,14 +13,6 @@ interface Task {
   total: number
   message: string
   error: string
-}
-
-function getUserId(): string {
-  try {
-    return localStorage.getItem('malife_user_id') ?? 'admin01'
-  } catch {
-    return 'admin01'
-  }
 }
 
 export function TaskBar() {

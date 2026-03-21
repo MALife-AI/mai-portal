@@ -13,7 +13,7 @@ import {
   FolderUp,
   Clock,
 } from 'lucide-react'
-import { ingestApi, type IngestResponse } from '@/api/client'
+import { ingestApi, getUserId, type IngestResponse } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { formatBytes, getFileExtension, cn } from '@/lib/utils'
 
@@ -229,7 +229,7 @@ export default function Ingestion() {
 
   function startPolling(taskId: string) {
     if (localPollRef.current) clearInterval(localPollRef.current)
-    const uid = localStorage.getItem('malife_user_id') || 'admin01'
+    const uid = getUserId()
 
     setLocalIngest(prev => ({ ...prev, status: 'running' }))
 
@@ -270,7 +270,7 @@ export default function Ingestion() {
   function handleLocalCancel() {
     const taskId = localTaskIdRef.current
     if (!taskId) return
-    const uid = localStorage.getItem('malife_user_id') || 'admin01'
+    const uid = getUserId()
     fetch(`/api/v1/ingest/tasks/${taskId}`, {
       method: 'DELETE',
       headers: { 'X-User-Id': uid },
@@ -290,7 +290,7 @@ export default function Ingestion() {
       form.append('source_dir', localPath)
       form.append('dest', dest)
 
-      const uid = localStorage.getItem('malife_user_id') || 'admin01'
+      const uid = getUserId()
       const response = await fetch('/api/v1/ingest/ingest-local', {
         method: 'POST',
         headers: { 'X-User-Id': uid },

@@ -12,7 +12,7 @@ export type ApiError = {
   detail?: unknown
 }
 
-function getUserId(): string {
+export function getUserId(): string {
   try {
     const stored = localStorage.getItem('malife_user_id')
     return stored ?? DEFAULT_USER
@@ -266,7 +266,7 @@ export const agentApi = {
     }),
 
   stream: async (
-    payload: { query: string; thread_id?: string },
+    payload: { query: string; thread_id?: string; server_url?: string },
     callbacks: StreamCallbacks,
   ) => {
     const userId = getUserId()
