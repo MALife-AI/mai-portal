@@ -151,12 +151,14 @@ export default function Skills() {
 
   // Create form
   const [formName, setFormName] = useState('')
+  const [formDisplayName, setFormDisplayName] = useState('')
   const [formDesc, setFormDesc] = useState('')
-  const [formEndpoint, setFormEndpoint] = useState('http://localhost:9001/')
+  const [formEndpoint, setFormEndpoint] = useState('')
   const [formMethod, setFormMethod] = useState('POST')
   const [formCategory, setFormCategory] = useState('custom')
   const [formParams, setFormParams] = useState('')
   const [formBody, setFormBody] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const fetchSkills = useCallback(async () => {
     setLoading(true)
@@ -180,23 +182,27 @@ export default function Skills() {
   }, [fetchSkills, fetchMarketplace])
 
   async function handleCreate() {
-    if (!formName || !formDesc || !formEndpoint) {
-      toast.error('필수 항목 누락', 'skill_name, description, endpoint는 필수입니다')
+    if (!formName || !formDesc) {
+      toast.error('필수 항목 누락', '스킬 ID와 설명은 필수입니다')
       return
     }
     let params = {}
     if (formParams.trim()) {
       try { params = JSON.parse(formParams) } catch { toast.error('파라미터 JSON 오류', ''); return }
     }
+    // 엔드포인트 없으면 기본 에이전트 내부 처리
+    const endpoint = formEndpoint.trim() || `http://localhost:9001/api/v1/agent/run`
+    const displayName = formDisplayName.trim() || formName
+
     await api('/api/v1/skills/create', {
       method: 'POST',
       body: JSON.stringify({
-        skill_name: formName, description: formDesc, endpoint: formEndpoint,
-        method: formMethod, category: formCategory, params, body: formBody,
+        skill_name: formName, description: `${displayName} — ${formDesc}`,
+        endpoint, method: formMethod, category: formCategory, params, body: formBody,
       }),
     })
-    toast.success('스킬 생성', formName)
-    setFormName(''); setFormDesc(''); setFormParams(''); setFormBody('')
+    toast.success('스킬 생성', displayName)
+    setFormName(''); setFormDisplayName(''); setFormDesc(''); setFormParams(''); setFormBody(''); setFormEndpoint('')
     fetchSkills()
     fetchMarketplace()
     setTab('manage')
@@ -310,14 +316,22 @@ export default function Skills() {
       {/* Create tab */}
       {tab === 'create' && (
         <div className="panel p-5 space-y-4">
+          <p className="text-xs text-surface-600">에이전트가 호출할 스킬을 생성합니다. 엔드포인트 없이 만들면 에이전트가 LLM 내부에서 처리합니다.</p>
+
+          {/* 기본 설정 */}
+          <div>
+            <label className="text-xs font-semibold text-surface-800">스킬 표시명 *</label>
+            <input value={formDisplayName} onChange={(e) => setFormDisplayName(e.target.value)} placeholder="예: 보험료 산출" className="input-field w-full mt-1 text-sm" />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">스킬 이름 *</label>
-              <input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="my-skill" className="input-field w-full mt-1 font-mono text-xs" />
+              <label className="text-xs font-semibold text-surface-800">스킬 ID *</label>
+              <input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="예: calculate-premium" className="input-field w-full mt-1 font-mono text-xs" />
+              <p className="text-2xs text-surface-600 mt-0.5">영문, 하이픈만 사용</p>
             </div>
             <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">카테고리</label>
-              <select value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="input-field w-full mt-1 text-xs">
+              <label className="text-xs font-semibold text-surface-800">카테고리</label>
+              <select value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="input-field w-full mt-1 text-sm">
                 <option value="custom">커스텀</option>
                 <option value="search">검색</option>
                 <option value="analysis">분석</option>
@@ -326,35 +340,54 @@ export default function Skills() {
             </div>
           </div>
           <div>
-            <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">설명 *</label>
-            <input value={formDesc} onChange={(e) => setFormDesc(e.target.value)} placeholder="이 스킬이 하는 일을 설명하세요" className="input-field w-full mt-1 text-xs" />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-2">
-              <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">엔드포인트 *</label>
-              <input value={formEndpoint} onChange={(e) => setFormEndpoint(e.target.value)} placeholder="http://..." className="input-field w-full mt-1 font-mono text-xs" />
-            </div>
-            <div>
-              <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">메서드</label>
-              <select value={formMethod} onChange={(e) => setFormMethod(e.target.value)} className="input-field w-full mt-1 text-xs">
-                <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
-              </select>
-            </div>
+            <label className="text-xs font-semibold text-surface-800">설명 *</label>
+            <textarea value={formDesc} onChange={(e) => setFormDesc(e.target.value)}
+              placeholder="이 스킬이 하는 일을 구체적으로 설명하세요. LLM이 이 설명을 보고 호출 여부를 판단합니다."
+              rows={2} className="input-field w-full mt-1 text-sm resize-none" />
           </div>
           <div>
-            <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">파라미터 (JSON)</label>
-            <textarea
-              value={formParams}
-              onChange={(e) => setFormParams(e.target.value)}
-              placeholder='{"query": {"type": "string", "description": "검색어", "required": true}}'
-              rows={3}
-              className="input-field w-full mt-1 font-mono text-xs resize-none"
-            />
+            <label className="text-xs font-semibold text-surface-800">상세 설명</label>
+            <textarea value={formBody} onChange={(e) => setFormBody(e.target.value)} rows={3}
+              placeholder="스킬의 동작 방식, 사용 예시, 주의사항 등..."
+              className="input-field w-full mt-1 text-sm resize-none" />
           </div>
-          <div>
-            <label className="text-2xs font-mono text-surface-600 uppercase tracking-widest">본문 설명 (마크다운)</label>
-            <textarea value={formBody} onChange={(e) => setFormBody(e.target.value)} rows={3} placeholder="스킬에 대한 상세 설명..." className="input-field w-full mt-1 text-xs resize-none" />
-          </div>
+
+          {/* 고급 설정 토글 */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs text-surface-600 hover:text-gold-500 transition-colors"
+          >
+            <ChevronRight size={12} className={cn('transition-transform', showAdvanced && 'rotate-90')} />
+            고급 설정 (외부 API 연동)
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-3 pl-4" style={{ borderLeft: '2px solid var(--color-border)' }}>
+              <p className="text-2xs text-surface-600">외부 API 엔드포인트를 지정하면 에이전트가 해당 API를 호출합니다. 비우면 LLM이 내부에서 처리합니다.</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="text-2xs text-surface-600">엔드포인트</label>
+                  <input value={formEndpoint} onChange={(e) => setFormEndpoint(e.target.value)} placeholder="http://..." className="input-field w-full mt-1 font-mono text-xs" />
+                </div>
+                <div>
+                  <label className="text-2xs text-surface-600">메서드</label>
+                  <select value={formMethod} onChange={(e) => setFormMethod(e.target.value)} className="input-field w-full mt-1 text-xs">
+                    <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-2xs text-surface-600">파라미터 (JSON)</label>
+                <textarea
+                  value={formParams}
+                  onChange={(e) => setFormParams(e.target.value)}
+                  placeholder='{"query": {"type": "string", "description": "검색어", "required": true}}'
+                  rows={3}
+                  className="input-field w-full mt-1 font-mono text-xs resize-none"
+                />
+              </div>
+            </div>
+          )}
           <button onClick={handleCreate} className="btn-primary flex items-center gap-2 text-sm w-full justify-center">
             <Plus size={14} /> 스킬 생성
           </button>
