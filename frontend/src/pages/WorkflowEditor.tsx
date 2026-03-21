@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Play, Save, Trash2, Plus, Loader2, ChevronRight,
-  Wrench, Zap, ArrowRight, GripVertical, Settings2,
+  Wrench, Zap, ArrowRight, GripVertical, Settings2, Cpu,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/store/useStore'
