@@ -1,6 +1,7 @@
 ---
 type: skill
 skill_name: validate-customer-info
+display_name: "고객 정보 검증"
 description: "고객 정보 유효성 검증 - 고객번호로 기본 정보를 조회하고 계약 적격성을 검증합니다."
 endpoint: "http://legacy-core:8080/api/customer/validate"
 method: POST

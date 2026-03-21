@@ -1,6 +1,7 @@
 ---
 type: skill
 skill_name: skill-maker
+display_name: "스킬 생성기"
 description: "스킬 생성 — 사용자의 요청을 분석하여 새로운 스킬을 자동으로 생성합니다. '~하는 스킬 만들어줘'라고 요청하면 스킬 이름, 설명, 엔드포인트, 파라미터를 자동 구성하여 등록합니다."
 endpoint: http://localhost:9001/api/v1/skills/create
 method: POST

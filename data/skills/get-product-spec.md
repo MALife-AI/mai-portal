@@ -32,6 +32,7 @@ params:
     required: true
     type: string
 skill_name: get-product-spec
+display_name: "상품 사양서 조회"
 type: skill
 updated_at: '2026-03-10T14:30:00Z'
 ---

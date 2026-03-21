@@ -35,6 +35,7 @@ params:
     required: true
     type: string
 skill_name: generate-report
+display_name: "리포트 생성"
 type: skill
 updated_at: '2026-03-19T09:00:00Z'
 ---

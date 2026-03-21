@@ -44,6 +44,7 @@ params:
     required: false
     type: object
 skill_name: send-notification
+display_name: "알림 발송"
 type: skill
 updated_at: '2026-03-19T09:00:00Z'
 ---

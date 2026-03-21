@@ -47,6 +47,7 @@ interface Skill {
   endpoint: string
   method: string
   category: string
+  display_name?: string
   params: Record<string, any>
   inputs?: Record<string, SkillIO>
   outputs?: Record<string, SkillIO>
@@ -149,7 +150,133 @@ function SkillNode({ data, selected }: NodeProps) {
   )
 }
 
-const nodeTypes = { skill: SkillNode }
+// ─── 입력 노드 ──────────────────────────────────────────────────────────────
+
+function InputNode({ data, selected }: NodeProps) {
+  const fields = (data.fields || []) as Array<{ name: string; type: string; label: string; value: string }>
+  const onFieldChange = data.onFieldChange as ((idx: number, value: string) => void) | undefined
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border shadow-lg min-w-[220px] max-w-[280px]',
+        selected ? 'border-status-info ring-2 ring-status-info/30' : 'border-surface-300',
+      )}
+      style={{ background: 'var(--color-bg-secondary)' }}
+    >
+      <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ background: 'rgba(74,144,217,0.1)', borderBottom: '1px solid var(--color-border)' }}>
+        <Zap size={12} className="text-status-info" />
+        <span className="text-xs font-semibold text-surface-900">사용자 입력</span>
+      </div>
+      <div className="px-3 py-2 space-y-2">
+        {fields.map((f, i) => (
+          <div key={i} className="relative">
+            <label className="text-2xs text-surface-600">{f.label || f.name} <span className="font-mono text-surface-500">({f.type})</span></label>
+            {f.inputType === 'file' ? (
+              <div className="flex gap-1 mt-0.5">
+                <input
+                  value={f.value}
+                  onChange={e => onFieldChange?.(i, e.target.value)}
+                  placeholder="/Shared/문서.md"
+                  className="input-field w-full text-2xs"
+                />
+              </div>
+            ) : f.inputType === 'graph' ? (
+              <input
+                value={f.value}
+                onChange={e => onFieldChange?.(i, e.target.value)}
+                placeholder="엔티티 ID 또는 이름"
+                className="input-field w-full text-2xs mt-0.5"
+                style={{ borderColor: 'rgba(74,144,217,0.5)' }}
+              />
+            ) : (
+              <input
+                value={f.value}
+                onChange={e => onFieldChange?.(i, e.target.value)}
+                placeholder={f.label || f.name}
+                className="input-field w-full text-2xs mt-0.5"
+              />
+            )}
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={`out-${f.name}`}
+              style={{ width: 8, height: 8, background: '#34C759', border: '2px solid var(--color-bg-secondary)', right: -4, top: 24 + i * 52 }}
+            />
+          </div>
+        ))}
+        {fields.length === 0 && (
+          <p className="text-2xs text-surface-600 italic">스킬을 연결하면 필요한 입력이 자동 표시됩니다</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── 가드레일 노드 ───────────────────────────────────────────────────────────
+
+function GuardrailNode({ data, selected }: NodeProps) {
+  const rules = (data.rules || []) as string[]
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border shadow-lg min-w-[200px] max-w-[240px]',
+        selected ? 'border-status-warning ring-2 ring-status-warning/30' : 'border-surface-300',
+      )}
+      style={{ background: 'var(--color-bg-secondary)' }}
+    >
+      <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ background: 'rgba(245,166,35,0.1)', borderBottom: '1px solid var(--color-border)' }}>
+        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4A90D9' }} />
+        <Settings2 size={12} className="text-status-warning" />
+        <span className="text-xs font-semibold text-surface-900">가드레일</span>
+        <span className="text-2xs px-1 py-0.5 rounded bg-status-warning/20 text-status-warning font-semibold">필수</span>
+      </div>
+      <div className="px-3 py-2 space-y-0.5">
+        {rules.map((r, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-2xs text-surface-700">
+            <div className="w-1.5 h-1.5 rounded-full bg-status-warning shrink-0" />
+            <span>{r}</span>
+          </div>
+        ))}
+        <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: '#34C759' }} />
+      </div>
+    </div>
+  )
+}
+
+// ─── LLM 모델 노드 ──────────────────────────────────────────────────────────
+
+function LLMNode({ data, selected }: NodeProps) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border shadow-lg min-w-[200px] max-w-[240px]',
+        selected ? 'border-gold-500 ring-2 ring-gold-500/30' : 'border-surface-300',
+      )}
+      style={{ background: 'var(--color-bg-secondary)' }}
+    >
+      <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ background: 'rgba(243,112,33,0.1)', borderBottom: '1px solid var(--color-border)' }}>
+        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4A90D9' }} />
+        <Cpu size={12} className="text-gold-500" />
+        <span className="text-xs font-semibold text-surface-900">LLM 응답 생성</span>
+      </div>
+      <div className="px-3 py-2 space-y-1">
+        <div className="flex items-center gap-1 text-2xs">
+          <span className="text-surface-600">모드:</span>
+          <span className="font-semibold text-gold-500">{(data.mode as string) || '자동'}</span>
+        </div>
+        <div className="flex items-center gap-1 text-2xs">
+          <span className="text-surface-600">모델:</span>
+          <span className="font-mono text-surface-800">{(data.model as string) || '기본 설정'}</span>
+        </div>
+        <p className="text-2xs text-surface-600 italic">스킬 결과를 종합하여 사용자에게 답변</p>
+      </div>
+    </div>
+  )
+}
+
+const nodeTypes = { skill: SkillNode, input: InputNode, guardrail: GuardrailNode, llm: LLMNode }
 
 // ─── 워크플로우 저장/로드 ────────────────────────────────────────────────────
 
@@ -196,6 +323,96 @@ export default function WorkflowEditor() {
     [setEdges],
   )
 
+  function addInputNode(inputType: string) {
+    const id = `input-${++idCounter.current}`
+    const fieldsMap: Record<string, Array<{ name: string; type: string; label: string; value: string; inputType: string }>> = {
+      text: [{ name: 'text_input', type: 'string', label: '텍스트 입력', value: '', inputType: 'text' }],
+      file: [{ name: 'file_path', type: 'string', label: '파일 경로', value: '', inputType: 'file' }],
+      graph: [{ name: 'entity_id', type: 'string', label: '엔티티 ID', value: '', inputType: 'graph' },
+              { name: 'entity_name', type: 'string', label: '엔티티명', value: '', inputType: 'graph' }],
+      query: [{ name: 'query', type: 'string', label: '검색 쿼리', value: '', inputType: 'text' }],
+      customer: [{ name: 'customer_id', type: 'string', label: '고객번호', value: '', inputType: 'text' },
+                 { name: 'customer_name', type: 'string', label: '고객명', value: '', inputType: 'text' }],
+      product: [{ name: 'product_code', type: 'string', label: '상품코드', value: '', inputType: 'text' },
+                { name: 'insured_age', type: 'integer', label: '피보험자 나이', value: '', inputType: 'text' }],
+    }
+    const fields = fieldsMap[inputType] || fieldsMap.text
+    const labels: Record<string, string> = {
+      text: '텍스트', file: '파일', graph: '그래프 엔티티',
+      query: '검색 쿼리', customer: '고객 정보', product: '상품 정보',
+    }
+    const newNode: Node = {
+      id,
+      type: 'input',
+      position: { x: 30, y: 80 + nodes.filter(n => n.type === 'input').length * 200 },
+      data: {
+        label: labels[inputType] || '입력',
+        fields,
+        onFieldChange: (idx: number, value: string) => {
+          setNodes(nds => nds.map(n => {
+            if (n.id !== id) return n
+            const updatedFields = [...(n.data.fields as any[])]
+            updatedFields[idx] = { ...updatedFields[idx], value }
+            return { ...n, data: { ...n.data, fields: updatedFields } }
+          }))
+        },
+      },
+    }
+    setNodes(nds => [...nds, newNode])
+  }
+
+  function addLLMNode() {
+    // 가드레일이 없으면 자동 추가
+    const hasGuardrail = nodes.some(n => n.type === 'guardrail')
+    const newNodes: Node[] = []
+
+    if (!hasGuardrail) {
+      const gId = `guardrail-${++idCounter.current}`
+      newNodes.push({
+        id: gId,
+        type: 'guardrail',
+        position: { x: 550, y: 100 },
+        data: {
+          label: '가드레일',
+          rules: [
+            'PII 마스킹',
+            '프롬프트 인젝션 방어',
+            '주제 제한 검사',
+            '출처 인용 필수',
+            '할루시네이션 가드',
+          ],
+        },
+        deletable: false,
+      })
+    }
+
+    const llmId = `llm-${++idCounter.current}`
+    newNodes.push({
+      id: llmId,
+      type: 'llm',
+      position: { x: 830, y: 100 },
+      data: {
+        label: 'LLM 응답',
+        mode: '자동',
+        model: '기본 설정',
+      },
+    })
+
+    setNodes(nds => [...nds, ...newNodes])
+
+    // 가드레일 → LLM 자동 연결
+    if (!hasGuardrail && newNodes.length === 2) {
+      const [guardrailNode, llmNode] = newNodes
+      setEdges(eds => addEdge({
+        source: guardrailNode.id,
+        target: llmNode.id,
+        animated: true,
+        style: { stroke: '#F5A623', strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#F5A623' },
+      }, eds))
+    }
+  }
+
   function addSkillNode(skill: Skill) {
     const id = `skill-${++idCounter.current}`
     const newNode: Node = {
@@ -203,7 +420,7 @@ export default function WorkflowEditor() {
       type: 'skill',
       position: { x: 100 + (nodes.length % 3) * 300, y: 80 + Math.floor(nodes.length / 3) * 250 },
       data: {
-        label: skill.skill_name,
+        label: skill.display_name || skill.skill_name,
         description: skill.description,
         category: skill.category,
         inputs: skill.inputs || {},
@@ -311,8 +528,40 @@ export default function WorkflowEditor() {
         className="w-64 shrink-0 overflow-y-auto p-3 space-y-2"
         style={{ background: 'var(--color-bg-secondary)', borderRight: '1px solid var(--color-border)' }}
       >
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-surface-800">스킬 팔레트</p>
+        {/* 입력/출력 노드 */}
+        <div className="mb-3">
+          <p className="text-2xs font-semibold text-surface-600 uppercase mb-1.5">입력 노드</p>
+          <div className="grid grid-cols-2 gap-1">
+            {[
+              { type: 'text', label: '텍스트', icon: '📝' },
+              { type: 'file', label: '파일', icon: '📁' },
+              { type: 'graph', label: '그래프', icon: '🔗' },
+              { type: 'query', label: '검색', icon: '🔍' },
+              { type: 'customer', label: '고객', icon: '👤' },
+              { type: 'product', label: '상품', icon: '📦' },
+            ].map(inp => (
+              <button
+                key={inp.type}
+                onClick={() => addInputNode(inp.type)}
+                className="flex items-center gap-1.5 p-1.5 rounded text-2xs hover:bg-surface-200 transition-colors"
+                style={{ border: '1px solid var(--color-border)' }}
+              >
+                <span>{inp.icon}</span>
+                <span className="text-surface-800">{inp.label}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={addLLMNode}
+            className="w-full mt-1.5 flex items-center justify-center gap-1.5 p-2 rounded text-xs font-semibold text-gold-500 hover:bg-surface-200 transition-colors"
+            style={{ border: '1px solid var(--color-border)' }}
+          >
+            <Cpu size={12} /> LLM 응답 + 가드레일
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between mb-2" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8 }}>
+          <p className="text-xs font-semibold text-surface-800">스킬</p>
           <Wrench size={13} className="text-gold-500" />
         </div>
 
@@ -327,7 +576,7 @@ export default function WorkflowEditor() {
             >
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ background: catColor }} />
-                <span className="text-xs font-semibold text-surface-900 truncate">{skill.skill_name}</span>
+                <span className="text-xs font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
               </div>
               <p className="text-2xs text-surface-600 line-clamp-1 mt-0.5 ml-4">{skill.description}</p>
               {skill.inputs && (
@@ -376,15 +625,15 @@ export default function WorkflowEditor() {
             placeholder="워크플로우 이름"
           />
           <div className="flex-1" />
-          <span className="text-2xs text-surface-600">{nodes.length}개 노드 · {edges.length}개 연결</span>
-          <button onClick={clearCanvas} className="btn-secondary text-2xs flex items-center gap-1"><Trash2 size={10} /> 초기화</button>
-          <button onClick={saveWorkflow} className="btn-secondary text-2xs flex items-center gap-1"><Save size={10} /> 저장</button>
+          <span className="text-2xs text-surface-600 whitespace-nowrap">{nodes.length}개 노드 · {edges.length}개 연결</span>
+          <button onClick={clearCanvas} className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> 초기화</button>
+          <button onClick={saveWorkflow} className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"><Save size={12} /> 저장</button>
           <button
             onClick={runWorkflow}
             disabled={running || nodes.length === 0}
-            className="btn-primary text-2xs flex items-center gap-1"
+            className="btn-primary text-xs whitespace-nowrap flex items-center gap-1"
           >
-            {running ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+            {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
             {running ? '실행 중...' : '실행'}
           </button>
         </div>

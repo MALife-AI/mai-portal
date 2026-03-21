@@ -52,6 +52,7 @@ params:
     required: false
     type: array
 skill_name: calculate-insurance-premium
+display_name: "보험료 산출"
 type: skill
 updated_at: '2026-03-10T14:30:00Z'
 ---

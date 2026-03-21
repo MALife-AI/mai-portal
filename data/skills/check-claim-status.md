@@ -31,6 +31,7 @@ params:
     required: false
     type: boolean
 skill_name: check-claim-status
+display_name: "청구 상태 조회"
 type: skill
 updated_at: '2026-03-19T09:00:00Z'
 ---
