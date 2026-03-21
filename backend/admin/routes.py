@@ -550,6 +550,47 @@ async def revoke_api_key(
     return {"status": "revoked", "key_prefix": key_prefix}
 
 
+# ─── 에이전트 UI 설정 ─────────────────────────────────────────────────────────
+
+_AGENT_UI_PATH = Path(settings.vault_root).parent / "data" / "agent_ui.json"
+
+_DEFAULT_AGENT_UI: dict[str, Any] = {
+    "suggestions": [
+        "보험 약관에서 면책 조항 추출해줘",
+        "최근 투자 보고서 요약해줘",
+        "고객 민원 데이터 분석해줘",
+        "스킬 목록 보여줘",
+    ],
+    "welcome_title": "M:AI 에이전트",
+    "welcome_subtitle": "금융 문서 분석, RAG 검색, 스킬 실행까지. 무엇이든 물어보세요.",
+}
+
+
+@router.get("/agent-ui")
+async def get_agent_ui(user_id: str = Depends(get_current_user)):
+    """에이전트 콘솔 UI 설정 조회 (인증된 사용자 모두 접근 가능)."""
+    if _AGENT_UI_PATH.exists():
+        return json.loads(_AGENT_UI_PATH.read_text(encoding="utf-8"))
+    return dict(_DEFAULT_AGENT_UI)
+
+
+@router.put("/agent-ui")
+async def update_agent_ui(
+    body: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """에이전트 콘솔 UI 설정 수정 (관리자 전용)."""
+    require_admin(user_id, iam)
+    current = dict(_DEFAULT_AGENT_UI)
+    if _AGENT_UI_PATH.exists():
+        current = json.loads(_AGENT_UI_PATH.read_text(encoding="utf-8"))
+    current.update(body)
+    _AGENT_UI_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _AGENT_UI_PATH.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    return current
+
+
 # ─── 가드레일 설정 ────────────────────────────────────────────────────────────
 
 GUARDRAILS_PATH = Path(settings.vault_root).parent / "data" / "guardrails.json"

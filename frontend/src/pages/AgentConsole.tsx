@@ -400,8 +400,16 @@ export default function AgentConsole() {
   const [query, setQuery] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [showExecSidebar, setShowExecSidebar] = useState(true)
+  const [agentUi, setAgentUi] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // 에이전트 UI 설정 로드
+  useEffect(() => {
+    const uid = localStorage.getItem('malife_user_id') || 'admin01'
+    fetch('/api/v1/admin/agent-ui', { headers: { 'X-User-Id': uid } })
+      .then(r => r.json()).then(setAgentUi).catch(() => {})
+  }, [])
 
   // 추론 서버 상태 + 모델 선택
   const [servers, setServers] = useState<ServerInfo[]>([])
@@ -619,18 +627,18 @@ export default function AgentConsole() {
                     <Bot size={28} className="text-gold-500" />
                   </div>
                   <h3 className="font-display font-semibold text-surface-800 text-xl mb-2">
-                    M:AI 에이전트
+                    {agentUi?.welcome_title || 'M:AI 에이전트'}
                   </h3>
                   <p className="text-sm text-surface-600 max-w-sm mb-6">
-                    금융 문서 분석, RAG 검색, 스킬 실행까지. 무엇이든 물어보세요.
+                    {agentUi?.welcome_subtitle || '금융 문서 분석, RAG 검색, 스킬 실행까지. 무엇이든 물어보세요.'}
                   </p>
                   <div className="grid grid-cols-2 gap-2 max-w-sm">
-                    {[
+                    {(agentUi?.suggestions || [
                       '보험 약관에서 면책 조항 추출해줘',
                       '최근 투자 보고서 요약해줘',
                       '고객 민원 데이터 분석해줘',
                       '스킬 목록 보여줘',
-                    ].map((suggestion) => (
+                    ]).map((suggestion: string) => (
                       <button
                         key={suggestion}
                         onClick={() => setQuery(suggestion)}

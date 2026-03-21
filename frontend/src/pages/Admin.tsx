@@ -736,9 +736,20 @@ function GuardrailsTab() {
   const [testText, setTestText] = useState('')
   const [testResult, setTestResult] = useState<any>(null)
   const [newTopic, setNewTopic] = useState('')
+  // 에이전트 UI 설정
+  const [agentUi, setAgentUi] = useState<{ suggestions: string[]; welcome_title: string; welcome_subtitle: string }>({
+    suggestions: ['', '', '', ''], welcome_title: '', welcome_subtitle: '',
+  })
   const toast = useToast()
 
-  useEffect(() => { api('/api/v1/admin/guardrails').then(setConfig) }, [])
+  useEffect(() => {
+    api('/api/v1/admin/guardrails').then(setConfig)
+    api('/api/v1/admin/agent-ui').then(d => setAgentUi({
+      suggestions: d.suggestions || ['', '', '', ''],
+      welcome_title: d.welcome_title || '',
+      welcome_subtitle: d.welcome_subtitle || '',
+    }))
+  }, [])
 
   async function save() {
     if (!config) return
@@ -974,6 +985,39 @@ function GuardrailsTab() {
             )}
           </div>
         )}
+      </div>
+
+      {/* 에이전트 콘솔 UI 설정 */}
+      <div className="panel p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-surface-800">에이전트 콘솔 화면 설정</h4>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-2xs text-surface-600">환영 제목</label>
+            <input value={agentUi.welcome_title} onChange={e => setAgentUi({ ...agentUi, welcome_title: e.target.value })}
+              placeholder="M:AI 에이전트" className="input-field w-full mt-1 text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600">환영 부제목</label>
+            <input value={agentUi.welcome_subtitle} onChange={e => setAgentUi({ ...agentUi, welcome_subtitle: e.target.value })}
+              placeholder="무엇이든 물어보세요." className="input-field w-full mt-1 text-xs" />
+          </div>
+        </div>
+        <div>
+          <label className="text-2xs text-surface-600">추천 질문 (4개)</label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            {agentUi.suggestions.map((s, i) => (
+              <input key={i} value={s} onChange={e => {
+                const updated = [...agentUi.suggestions]
+                updated[i] = e.target.value
+                setAgentUi({ ...agentUi, suggestions: updated })
+              }} placeholder={`추천 질문 ${i + 1}`} className="input-field text-xs" />
+            ))}
+          </div>
+        </div>
+        <button onClick={async () => {
+          await api('/api/v1/admin/agent-ui', { method: 'PUT', body: JSON.stringify(agentUi) })
+          toast.success('에이전트 화면 설정 저장', '')
+        }} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
       </div>
     </div>
   )
