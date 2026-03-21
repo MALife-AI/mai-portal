@@ -375,11 +375,15 @@ async def list_doc_permissions(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    """vault 문서별 권한 조회."""
+    """vault 문서별 권한 조회 (부서 접근 권한 포함)."""
     require_admin(user_id, iam)
     vault_root = settings.vault_root
+    hidden = {"Skills", ".graph", ".obsidian", "assets"}
     docs = []
     for md_file in sorted(vault_root.rglob("*.md"))[:200]:
+        rel_parts = md_file.relative_to(vault_root).parts
+        if rel_parts and rel_parts[0] in hidden:
+            continue
         rel = "/" + md_file.relative_to(vault_root).as_posix()
         try:
             from backend.core.frontmatter import parse_frontmatter
@@ -389,11 +393,45 @@ async def list_doc_permissions(
                 "path": rel,
                 "owner": meta.get("owner", ""),
                 "allowed_roles": meta.get("allowed_roles", []),
+                "allowed_departments": meta.get("allowed_departments", []),
+                "effective_date": meta.get("effective_date", ""),
                 "created_at": meta.get("created_at", ""),
             })
         except Exception:
-            docs.append({"path": rel, "owner": "", "allowed_roles": [], "created_at": ""})
+            docs.append({"path": rel, "owner": "", "allowed_roles": [], "allowed_departments": [], "effective_date": "", "created_at": ""})
     return {"documents": docs, "total": len(docs)}
+
+
+class DocPermissionUpdate(BaseModel):
+    path: str
+    allowed_departments: list[str] = Field(default_factory=list)
+    allowed_roles: list[str] = Field(default_factory=list)
+
+
+@router.put("/doc-permissions")
+async def update_doc_permissions(
+    body: DocPermissionUpdate,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """문서의 부서/역할 접근 권한을 수정."""
+    require_admin(user_id, iam)
+    vault_root = settings.vault_root
+    file_path = vault_root / body.path.lstrip("/")
+    if not file_path.exists():
+        raise HTTPException(404, f"Document not found: {body.path}")
+
+    from backend.core.frontmatter import parse_frontmatter, synthesize_frontmatter
+    content = file_path.read_text(encoding="utf-8")
+    meta, doc_body = parse_frontmatter(content)
+
+    meta["allowed_departments"] = body.allowed_departments
+    meta["allowed_roles"] = body.allowed_roles
+
+    new_content = synthesize_frontmatter(doc_body, user_id=meta.get("owner", user_id), extra_meta=meta)
+    file_path.write_text(new_content, encoding="utf-8")
+
+    return {"status": "updated", "path": body.path}
 
 
 # ─── 거버넌스/컴플라이언스 ────────────────────────────────────────────────────
@@ -457,14 +495,14 @@ async def governance_report(
 # 모든 권한 항목 정의
 PERMISSION_CATALOG: list[dict[str, Any]] = [
     # 문서 관리
-    {"id": "doc.read.public", "category": "문서 관리", "label": "공용 문서 읽기", "description": "Public 폴더 문서 조회"},
+    {"id": "doc.read.public", "category": "문서 관리", "label": "공용 문서 읽기", "description": "Shared 폴더 문서 조회"},
     {"id": "doc.read.private", "category": "문서 관리", "label": "개인 문서 읽기", "description": "Private 폴더 자신의 문서 조회"},
     {"id": "doc.read.all_private", "category": "문서 관리", "label": "전체 개인 문서 읽기", "description": "모든 사용자의 Private 문서 조회 (관리자)"},
-    {"id": "doc.write.public", "category": "문서 관리", "label": "공용 문서 작성", "description": "Public 폴더에 문서 생성/수정"},
+    {"id": "doc.write.public", "category": "문서 관리", "label": "공용 문서 작성", "description": "Shared 폴더에 문서 생성/수정 (관리자)"},
     {"id": "doc.write.private", "category": "문서 관리", "label": "개인 문서 작성", "description": "Private 폴더에 문서 생성/수정"},
     {"id": "doc.delete", "category": "문서 관리", "label": "문서 삭제", "description": "vault 문서 삭제"},
     {"id": "doc.upload", "category": "문서 관리", "label": "문서 업로드", "description": "파일 업로드 및 인제스션"},
-    {"id": "doc.upload.public", "category": "문서 관리", "label": "공용 문서 업로드", "description": "Public 폴더에 문서 업로드 (관리자)"},
+    {"id": "doc.upload.public", "category": "문서 관리", "label": "공용 문서 업로드", "description": "Shared 폴더에 문서 업로드 (관리자)"},
     # 에이전트
     {"id": "agent.query", "category": "에이전트", "label": "에이전트 질의", "description": "에이전트 콘솔에서 질문"},
     {"id": "agent.skill.use", "category": "에이전트", "label": "스킬 사용", "description": "에이전트 스킬 호출"},

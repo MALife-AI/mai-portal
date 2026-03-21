@@ -131,7 +131,7 @@ export function pathsToFlatList(paths: string[]): SelectableItem[] {
       if (child.isFile) {
         result.push({ path: child.path, isFolder: false })
       } else {
-        const isRootFolder = depth === 0 && ['Public', 'Private', 'Skills'].includes(child.name)
+        const isRootFolder = depth === 0 && ['Shared', 'Private', 'Skills'].includes(child.name)
         if (!isRootFolder) {
           result.push({ path: child.path, isFolder: true })
         }

@@ -116,7 +116,7 @@ async def upload_batch(
 
             content_bytes = await file.read()
             body = content_bytes.decode("utf-8", errors="replace")
-            target = file_dest or f"Public/{file.filename}"
+            target = file_dest or f"Shared/{file.filename}"
             await write_document(target, body, user_id=user_id)
             results.append({"file": file.filename, "status": "saved", "path": target})
             continue
@@ -193,7 +193,7 @@ async def reprocess_vault_md(
 @router.post("/ingest-local")
 async def ingest_local_path(
     source_dir: str = Form(...),
-    dest: str = Form("Public/"),
+    dest: str = Form("Shared/"),
     user_id: str = Depends(get_current_user),
 ):
     """로컬 디렉토리를 백그라운드 태스크로 변환. 페이지 이동해도 계속 실행."""
@@ -309,7 +309,7 @@ async def convert_pdf_to_docx(
 
             # Step 2: DOCX → 마크다운
             task.message = "마크다운 변환 중..."
-            rel_path = dest or f"Public/{doc_name}.md"
+            rel_path = dest or f"Shared/{doc_name}.md"
             md_path = await _pipeline.ingest(docx_path, user_id=user_id, dest_rel=rel_path)
             task.progress = 2
             task.result["path"] = md_path

@@ -199,7 +199,7 @@ export default function Ingestion() {
   const toast = useToast()
   const { userId } = useStore()
 
-  const [destBase, setDestBase] = useState<'Public' | 'Private'>('Public')
+  const [destBase, setDestBase] = useState<'Shared' | 'Private'>'Shared'
   const [jobs, setJobs] = useState<UploadJob[]>([])
   const [folderJobs, setFolderJobs] = useState<FolderUploadJob[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -282,7 +282,7 @@ export default function Ingestion() {
   }
 
   async function handleLocalIngest() {
-    const dest = destBase === 'Private' ? `Private/${userId}/` : 'Public/'
+    const dest = destBase === 'Private' ? `Private/${userId}/` : 'Shared/'
     setLocalIngest({ status: 'running', total: 0, processed: 0, success: 0, errors: 0, skipped: 0, currentFile: '태스크 제출 중...', log: [] })
 
     try {
@@ -332,7 +332,7 @@ export default function Ingestion() {
 
   async function uploadFile(job: UploadJob) {
     const dest =
-      destBase === 'Private' ? `Private/${userId}/` : 'Public/'
+      destBase === 'Private' ? `Private/${userId}/` : 'Shared/'
 
     const controller = new AbortController()
     abortControllers.current.set(job.id, controller)
@@ -431,7 +431,7 @@ export default function Ingestion() {
 
     // 폴더명 추출
     const folderName = relativePaths[0]?.split('/')[0] || '폴더'
-    const dest = destBase === 'Private' ? `Private/${userId}/` : 'Public/'
+    const dest = destBase === 'Private' ? `Private/${userId}/` : 'Shared/'
 
     const jobId = String(++jobIdCounter)
     const folderJob: FolderUploadJob = {
@@ -490,7 +490,7 @@ export default function Ingestion() {
       const newJobs: UploadJob[] = acceptedFiles.map((file) => ({
         id: String(++jobIdCounter),
         file,
-        dest: destBase === 'Private' ? `Private/${userId}/` : 'Public/',
+        dest: destBase === 'Private' ? `Private/${userId}/` : 'Shared/',
         status: 'queued',
         stageStatuses: PIPELINE_STAGES.map(() => 'pending'),
         startedAt: new Date().toISOString(),
@@ -540,7 +540,7 @@ export default function Ingestion() {
       <div className="panel p-4">
         <p className="text-xs font-semibold text-surface-700 mb-3">업로드 대상 경로</p>
         <div className="flex gap-2">
-          {(['Public', 'Private'] as const).map((base) => (
+          {(['Shared', 'Private'] as const).map((base) => (
             <button
               key={base}
               onClick={() => setDestBase(base)}
@@ -551,8 +551,8 @@ export default function Ingestion() {
                   : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
               )}
             >
-              {base === 'Public' ? (
-                <span>🌐 Public/</span>
+              {base === 'Shared' ? (
+                <span>🌐 Shared/</span>
               ) : (
                 <span>🔒 Private/{userId}/</span>
               )}
@@ -560,7 +560,7 @@ export default function Ingestion() {
           ))}
         </div>
         <p className="text-2xs text-surface-600 mt-2 font-mono">
-          저장 경로: {destBase === 'Private' ? `Private/${userId}/` : 'Public/'}
+          저장 경로: {destBase === 'Private' ? `Private/${userId}/` : 'Shared/'}
         </p>
       </div>
 

@@ -41,7 +41,7 @@ export function FileTree({
   className,
 }: FileTreeProps) {
   const tree = pathToTreeNodes(paths)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['Public', 'Private', 'Skills']))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['Shared', 'Private', 'Skills']))
 
   function toggleExpand(path: string) {
     setExpanded((prev) => {
@@ -56,7 +56,7 @@ export function FileTree({
   }
 
   function getFolderIcon(name: string, isOpen: boolean) {
-    if (name === 'Public') return <Globe size={13} className="text-status-success shrink-0" />
+    if (name === 'Shared') return <Globe size={13} className="text-status-success shrink-0" />
     if (name === 'Private') return <Lock size={13} className="text-status-warning shrink-0" />
     if (name === 'Skills') return <Zap size={13} className="text-gold-500 shrink-0" />
     if (isOpen) return <FolderOpen size={13} className="text-slate-data shrink-0" />
@@ -140,7 +140,7 @@ export function FileTree({
     if (children.length === 0) return null
 
     const isOpen = expanded.has(node.path)
-    const isRootFolder = depth === 0 && ['Public', 'Private', 'Skills'].includes(node.name)
+    const isRootFolder = depth === 0 && ['Shared', 'Private', 'Skills'].includes(node.name)
 
     const isFolderSelected = selectedFolders?.has(node.path) ?? false
     const parentSelected = isUnderSelectedFolder(node.path)

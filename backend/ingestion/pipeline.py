@@ -81,7 +81,7 @@ class IngestionPipeline:
         clean_md = post_process(raw_md)
 
         # Step 5: Vault 저장 + Git 커밋
-        rel_path = dest_rel or f"Public/{doc_name}.md"
+        rel_path = dest_rel or f"Shared/{doc_name}.md"
         await write_document(
             rel_path,
             clean_md,

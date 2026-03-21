@@ -25,17 +25,17 @@ roles:
     description: "시스템 관리자"
     allowed_paths:
       read:
-        - "/Public/**"
+        - "/Shared/**"
         - "/Private/**"
       write:
-        - "/Public/**"
+        - "/Shared/**"
         - "/Private/**"
 
   underwriter:
     description: "언더라이터 (심사역)"
     allowed_paths:
       read:
-        - "/Public/**"
+        - "/Shared/**"
         - "/Public/underwriting/**"
       write:
         - "/Public/underwriting/**"
@@ -44,7 +44,7 @@ roles:
     description: "데이터 분석가"
     allowed_paths:
       read:
-        - "/Public/**"
+        - "/Shared/**"
       write:
         - "/Public/reports/**"
 
@@ -52,7 +52,7 @@ roles:
     description: "일반 조회자"
     allowed_paths:
       read:
-        - "/Public/**"
+        - "/Shared/**"
       write: []
 
 users:

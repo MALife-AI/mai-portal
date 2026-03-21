@@ -96,7 +96,7 @@ function ResultCard({
             </div>
           )}
           {workspace && (
-            <span className={cn('tag', workspace === 'Public' ? 'tag-success' : 'tag-warning')}>
+            <span className={cn('tag', workspace === 'Shared' ? 'tag-success' : 'tag-warning')}>
               {workspace}
             </span>
           )}
@@ -157,7 +157,7 @@ export default function Search() {
 
   // Filters
   const [showFilters, setShowFilters] = useState(false)
-  const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'Public' | 'Private'>('all')
+  const [filterWorkspace, setFilterWorkspace] = useState<'all' | 'Shared' | 'Private'>('all')
 
   const doSearch = useCallback(
     async (q: string, n = resultCount) => {
@@ -286,7 +286,7 @@ export default function Search() {
                     <label className="text-xs text-surface-700 font-semibold whitespace-nowrap">
                       워크스페이스:
                     </label>
-                    {(['all', 'Public', 'Private'] as const).map((opt) => (
+                    {(['all', 'Shared', 'Private'] as const).map((opt) => (
                       <button
                         key={opt}
                         type="button"
