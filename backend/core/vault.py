@@ -63,6 +63,20 @@ async def write_document(
     return full
 
 
+_VAULT_HIDDEN_DIRS = {"Skills", ".graph", ".obsidian", "assets"}
+
 async def list_files(base_rel: str = "", glob_pattern: str = "**/*.md") -> list[str]:
-    base = settings.vault_root / base_rel
-    return [str(p.relative_to(settings.vault_root)) for p in base.glob(glob_pattern) if p.is_file()]
+    vault_root = settings.vault_root
+    base = vault_root / base_rel
+
+    def _glob() -> list[str]:
+        results = []
+        for p in base.glob(glob_pattern):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(vault_root)
+            if not (rel.parts and rel.parts[0] in _VAULT_HIDDEN_DIRS):
+                results.append(str(rel))
+        return results
+
+    return await asyncio.to_thread(_glob)

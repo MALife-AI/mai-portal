@@ -298,6 +298,7 @@ class GraphExtractor:
         self,
         text: str,
         source_path: str,
+        effective_date: str | None = None,
     ) -> tuple[list[Entity], list[Relationship]]:
         passages = _split_text(text)
         sem = asyncio.Semaphore(_MAX_CONCURRENCY)
@@ -313,7 +314,7 @@ class GraphExtractor:
 
         for passage, result in zip(passages, raw_results):
             page_range = _extract_page_range(passage)
-            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range)
+            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range, effective_date=effective_date)
             all_entities.extend(ents)
             all_relationships.extend(rels)
 
@@ -416,7 +417,24 @@ class GraphExtractor:
             return [], []
 
         content = await asyncio.to_thread(file_path.read_text, "utf-8")
-        return await self.extract_from_text(content, rel_path)
+
+        # frontmatter에서 effective_date 추출
+        effective_date = None
+        try:
+            from backend.core.frontmatter import parse_frontmatter
+            meta, body = parse_frontmatter(content)
+            effective_date = meta.get("effective_date") or meta.get("updated_at", "")[:10] or None
+            # 파일명에서 날짜 추출 시도 (예: _약관_20220101.md)
+            if not effective_date:
+                import re
+                date_match = re.search(r'(\d{8})', file_path.stem)
+                if date_match:
+                    d = date_match.group(1)
+                    effective_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+        except Exception:
+            pass
+
+        return await self.extract_from_text(content, rel_path, effective_date=effective_date)
 
     # 그래프 추출 제외 경로 (스킬, 설정 파일 등)
     _EXCLUDE_DIRS = {"Skills", ".graph", ".obsidian", "assets"}
@@ -529,6 +547,7 @@ class GraphExtractor:
         extraction: dict[str, Any],
         source_path: str,
         page_range: tuple[int | None, int | None] = (None, None),
+        effective_date: str | None = None,
     ) -> tuple[list[Entity], list[Relationship]]:
         entities: list[Entity] = []
         relationships: list[Relationship] = []
@@ -556,6 +575,10 @@ class GraphExtractor:
                 props["page_start"] = page_range[0]
             if page_range[1] is not None:
                 props["page_end"] = page_range[1]
+
+            # 시행일 기록 (문서 버전 관리)
+            if effective_date:
+                props["effective_date"] = effective_date
 
             # LLM이 추출한 구조화된 프로퍼티 병합
             raw_props = e_dict.get("properties", {})
