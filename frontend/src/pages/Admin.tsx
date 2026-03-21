@@ -155,12 +155,15 @@ function OverviewTab() {
 // ─── IAM ─────────────────────────────────────────────────────────────────────
 
 function IamTab() {
-  const [users, setUsers] = useState<{ user_id: string; display_name: string; permissions: string[] }[]>([])
+  const [users, setUsers] = useState<{ user_id: string; display_name: string; department: string; permissions: string[] }[]>([])
   const [catalog, setCatalog] = useState<Record<string, { id: string; label: string; description: string }[]>>({})
-  const [templates, setTemplates] = useState<{ id: string; name: string; description: string; permissions: string[] }[]>([])
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string; permissions: string[]; custom?: boolean }[]>([])
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const [userPerms, setUserPerms] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [showNewTemplate, setShowNewTemplate] = useState(false)
+  const [newTplName, setNewTplName] = useState('')
+  const [newTplId, setNewTplId] = useState('')
   const toast = useToast()
 
   const fetchData = useCallback(async () => {
@@ -225,6 +228,7 @@ function IamTab() {
           >
             <p className="font-mono">{u.user_id}</p>
             <p className="text-2xs text-surface-600">{u.display_name}</p>
+            {u.department && <p className="text-2xs text-surface-500">{u.department}</p>}
           </button>
         ))}
       </div>
@@ -236,20 +240,69 @@ function IamTab() {
         ) : (
           <div className="space-y-4">
             {/* Template buttons */}
-            <div className="flex items-center gap-2">
-              <span className="text-2xs font-mono text-surface-600">템플릿 적용:</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-2xs font-mono text-surface-600">템플릿:</span>
               {templates.map(t => (
-                <button key={t.id} onClick={() => applyTemplate(t.id)}
-                  className="tag tag-gold hover:opacity-80 cursor-pointer text-2xs"
-                  title={t.description}
-                >
-                  {t.name}
-                </button>
+                <div key={t.id} className="flex items-center gap-0.5 group">
+                  <button onClick={() => applyTemplate(t.id)}
+                    className="tag tag-gold hover:opacity-80 cursor-pointer text-2xs"
+                    title={t.description}
+                  >
+                    {t.name}
+                  </button>
+                  {t.custom && (
+                    <button
+                      onClick={async () => {
+                        await api(`/api/v1/admin/permissions/template/${t.id}`, { method: 'DELETE' })
+                        toast.success('템플릿 삭제', t.name)
+                        fetchData()
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-status-error transition-opacity"
+                      title="삭제"
+                    >
+                      <XCircle size={11} />
+                    </button>
+                  )}
+                </div>
               ))}
+              <button onClick={() => setShowNewTemplate(!showNewTemplate)}
+                className="w-5 h-5 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200"
+                title="새 템플릿 만들기"
+              >
+                <Plus size={12} />
+              </button>
               <button onClick={handleSave} disabled={saving} className="btn-primary text-xs flex items-center gap-1 ml-auto">
                 {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />} 저장
               </button>
             </div>
+
+            {/* 새 템플릿 생성 */}
+            {showNewTemplate && (
+              <div className="panel p-3 flex items-end gap-2" style={{ background: 'var(--color-bg-primary)' }}>
+                <div className="flex-1">
+                  <label className="text-2xs text-surface-600">템플릿 이름</label>
+                  <input value={newTplName} onChange={e => { setNewTplName(e.target.value); setNewTplId(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-')) }}
+                    placeholder="예: 팀장" className="input-field w-full mt-0.5 text-xs" />
+                </div>
+                <div className="w-32">
+                  <label className="text-2xs text-surface-600">ID</label>
+                  <input value={newTplId} onChange={e => setNewTplId(e.target.value)}
+                    className="input-field w-full mt-0.5 font-mono text-2xs" />
+                </div>
+                <button onClick={async () => {
+                  if (!newTplId || !newTplName) return
+                  await api('/api/v1/admin/permissions/template', {
+                    method: 'POST',
+                    body: JSON.stringify({ id: newTplId, name: newTplName, description: `${newTplName} 역할`, permissions: userPerms }),
+                  })
+                  toast.success('템플릿 생성', `${newTplName} (현재 체크된 권한으로)`)
+                  setShowNewTemplate(false)
+                  setNewTplName('')
+                  setNewTplId('')
+                  fetchData()
+                }} className="btn-primary text-xs whitespace-nowrap">현재 권한으로 저장</button>
+              </div>
+            )}
 
             {/* Permission checkboxes by category */}
             {Object.entries(catalog).map(([category, perms]) => (
