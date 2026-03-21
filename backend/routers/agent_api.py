@@ -24,6 +24,18 @@ _registry.load_all()
 class AgentRequest(BaseModel):
     query: str
     thread_id: str | None = None
+    server_url: str | None = None
+
+    @classmethod
+    def validate_server_url(cls, url: str | None) -> str | None:
+        """등록된 GPU 서버 URL만 허용 (SSRF 방지)."""
+        if url is None:
+            return None
+        from backend.admin.routes import _load_gpu_servers
+        allowed = {s["url"] for s in _load_gpu_servers()}
+        if url not in allowed:
+            raise ValueError(f"Unregistered server URL: {url}")
+        return url
 
 
 @router.post("/run")
@@ -38,12 +50,12 @@ async def run_agent(
 
     safe_query = sanitize_input(body.query)
     roles = iam.get_user_roles(user_id)
+    validated_url = AgentRequest.validate_server_url(body.server_url)
 
     async def _run(task: TaskInfo):
         task.message = "에이전트 실행 중..."
         task.total = 1
 
-        # 스트리밍으로 실행하여 토큰 누적
         response_text = ""
         metadata = {}
         async for event in invoke_agent_stream(
@@ -52,6 +64,7 @@ async def run_agent(
             user_roles=roles,
             skill_registry=_registry,
             thread_id=body.thread_id,
+            server_url=validated_url,
         ):
             if event.get("type") == "metadata":
                 metadata = event
@@ -86,6 +99,7 @@ async def stream_agent(
 
     safe_query = sanitize_input(body.query)
     roles = iam.get_user_roles(user_id)
+    validated_url = AgentRequest.validate_server_url(body.server_url)
 
     async def event_generator():
         async for event in invoke_agent_stream(
@@ -94,6 +108,7 @@ async def stream_agent(
             user_roles=roles,
             skill_registry=_registry,
             thread_id=body.thread_id,
+            server_url=validated_url,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

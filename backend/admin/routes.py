@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.dependencies import get_iam, get_current_user
+from backend.dependencies import get_iam, get_current_user, require_admin
 from backend.core.iam import IAMEngine
 from backend.agents.checkpointer import query_audit_logs
 from backend.security.kill_switch import (
@@ -25,9 +25,81 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _require_admin(user_id: str, iam: IAMEngine) -> None:
-    if "admin" not in iam.get_user_roles(user_id):
-        raise HTTPException(status_code=403, detail="Admin role required")
+# ─── 부서 관리 ────────────────────────────────────────────────────────────────
+
+class DepartmentConfig(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    description: str = ""
+
+
+@router.get("/departments")
+async def list_departments(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    iam.reload()
+    data = iam.as_dict()
+    depts = data.get("departments", {})
+    return {
+        "departments": [
+            {"id": k, "name": v.get("name", k), "description": v.get("description", "")}
+            for k, v in depts.items()
+        ]
+    }
+
+
+@router.post("/departments")
+async def add_department(
+    body: DepartmentConfig,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    iam.reload()
+    data = iam.as_dict()
+    depts = data.setdefault("departments", {})
+    if body.id in depts:
+        raise HTTPException(409, f"Department '{body.id}' already exists")
+    depts[body.id] = {"name": body.name, "description": body.description}
+    iam.save(data)
+    return {"status": "created", "id": body.id}
+
+
+@router.put("/departments/{dept_id}")
+async def update_department(
+    dept_id: str,
+    body: DepartmentConfig,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    iam.reload()
+    data = iam.as_dict()
+    depts = data.get("departments", {})
+    if dept_id not in depts:
+        raise HTTPException(404, f"Department '{dept_id}' not found")
+    depts[dept_id] = {"name": body.name, "description": body.description}
+    iam.save(data)
+    return {"status": "updated", "id": dept_id}
+
+
+@router.delete("/departments/{dept_id}")
+async def delete_department(
+    dept_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    iam.reload()
+    data = iam.as_dict()
+    depts = data.get("departments", {})
+    if dept_id not in depts:
+        raise HTTPException(404, f"Department '{dept_id}' not found")
+    del depts[dept_id]
+    iam.save(data)
+    return {"status": "deleted", "id": dept_id}
 
 
 # ─── IAM ──────────────────────────────────────────────────────────────────────
@@ -37,7 +109,7 @@ async def get_iam_config(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     iam.reload()
     return iam.as_dict()
 
@@ -48,7 +120,7 @@ async def update_iam_config(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     iam.save(body)
     return {"status": "updated"}
 
@@ -62,7 +134,7 @@ async def get_audit_logs(
     limit: int = 50,
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     return query_audit_logs(user_id=filter_user, limit=limit)
 
 
@@ -70,14 +142,14 @@ async def get_audit_logs(
 
 @router.post("/kill-switch/activate")
 async def kill_switch_on(user_id: str = Depends(get_current_user), iam: IAMEngine = Depends(get_iam)):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     await activate_kill_switch()
     return {"status": "activated"}
 
 
 @router.post("/kill-switch/deactivate")
 async def kill_switch_off(user_id: str = Depends(get_current_user), iam: IAMEngine = Depends(get_iam)):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     await deactivate_kill_switch()
     return {"status": "deactivated"}
 
@@ -97,13 +169,85 @@ class ModelConfig(BaseModel):
     max_tokens: int = Field(1024)
 
 
+class GPUServerConfig(BaseModel):
+    id: str
+    name: str
+    url: str
+    model: str = "qwen3.5-4b"
+    description: str = ""
+
+
+# GPU 서버 목록 파일
+_GPU_SERVERS_FILE = Path(settings.vault_root).parent / "data" / "gpu_servers.json"
+
+# In-memory cache: (mtime_ns, parsed_list).  None means not yet loaded.
+_gpu_servers_cache: tuple[int, list[dict[str, Any]]] | None = None
+
+
+def _load_gpu_servers() -> list[dict[str, Any]]:
+    global _gpu_servers_cache
+    if _GPU_SERVERS_FILE.exists():
+        mtime = _GPU_SERVERS_FILE.stat().st_mtime_ns
+        if _gpu_servers_cache is not None and _gpu_servers_cache[0] == mtime:
+            return _gpu_servers_cache[1]
+        data = json.loads(_GPU_SERVERS_FILE.read_text())
+        _gpu_servers_cache = (mtime, data)
+        return data
+    return [{"id": "local", "name": "Local 4B", "url": getattr(settings, "llama_server_url", "http://localhost:8801/v1"), "model": "qwen3.5-4b", "description": "로컬 Metal 가속"}]
+
+
+def _save_gpu_servers(servers: list[dict[str, Any]]) -> None:
+    global _gpu_servers_cache
+    _GPU_SERVERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _GPU_SERVERS_FILE.write_text(json.dumps(servers, indent=2, ensure_ascii=False))
+    _gpu_servers_cache = (_GPU_SERVERS_FILE.stat().st_mtime_ns, servers)
+
+
+@router.get("/gpu-servers")
+async def list_gpu_servers(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    return {"servers": _load_gpu_servers()}
+
+
+@router.post("/gpu-servers")
+async def add_gpu_server(
+    body: GPUServerConfig,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """GPU 추론 서버 추가."""
+    require_admin(user_id, iam)
+    servers = _load_gpu_servers()
+    if any(s["id"] == body.id for s in servers):
+        raise HTTPException(409, f"Server '{body.id}' already exists")
+    servers.append(body.model_dump())
+    _save_gpu_servers(servers)
+    return {"status": "added", "server": body.model_dump()}
+
+
+@router.delete("/gpu-servers/{server_id}")
+async def remove_gpu_server(
+    server_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """GPU 추론 서버 삭제."""
+    require_admin(user_id, iam)
+    servers = _load_gpu_servers()
+    servers = [s for s in servers if s["id"] != server_id]
+    _save_gpu_servers(servers)
+    return {"status": "deleted"}
+
+
 @router.get("/model-config")
 async def get_model_config(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
-    env_path = Path(settings.vault_root).parent / ".env"
+    require_admin(user_id, iam)
     config = {
         "vlm_provider": os.environ.get("VLM_PROVIDER", settings.vlm_provider),
         "vlm_model": os.environ.get("VLM_MODEL", settings.vlm_model),
@@ -111,20 +255,23 @@ async def get_model_config(
         "claude_wrapper_url": settings.claude_wrapper_url,
         "ollama_base_url": settings.ollama_base_url,
     }
-    # 사용 가능한 모델 목록
     available_models = []
     try:
+        import asyncio
         import subprocess
-        r = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        loop = asyncio.get_event_loop()
+        r = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5),
+        )
         for line in r.stdout.strip().split("\n")[1:]:
             parts = line.split()
             if parts:
                 available_models.append({"name": parts[0], "source": "ollama", "size": parts[2] if len(parts) > 2 else ""})
     except Exception:
         pass
-    # llama-server 모델
     available_models.append({"name": "qwen3.5-4b", "source": "llama-server (Unsloth GGUF)", "size": "4.16 GB"})
-    return {"config": config, "available_models": available_models}
+    return {"config": config, "available_models": available_models, "gpu_servers": _load_gpu_servers()}
 
 
 @router.put("/model-config")
@@ -133,7 +280,7 @@ async def update_model_config(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     env_path = Path(settings.vault_root).parent / ".env"
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     updates = {
@@ -164,7 +311,7 @@ async def get_metrics(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     # 감사 로그에서 메트릭 집계
     logs = query_audit_logs(limit=500)
     entries = logs if isinstance(logs, list) else logs.get("logs", [])
@@ -229,7 +376,7 @@ async def list_doc_permissions(
     iam: IAMEngine = Depends(get_iam),
 ):
     """vault 문서별 권한 조회."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     vault_root = settings.vault_root
     docs = []
     for md_file in sorted(vault_root.rglob("*.md"))[:200]:
@@ -257,7 +404,7 @@ async def governance_report(
     iam: IAMEngine = Depends(get_iam),
 ):
     """거버넌스 대시보드: PII 감지, 권한 위반, 킬스위치 이력 등."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
 
     # PII 마스킹 통계 (DLP 미들웨어 로그에서)
     logs = query_audit_logs(limit=500)
@@ -387,16 +534,27 @@ ROLE_TEMPLATES: list[dict[str, Any]] = [
 # 권한 데이터 파일
 _PERMISSIONS_FILE = Path(settings.vault_root).parent / "data" / "permissions.json"
 
+# In-memory cache: (mtime_ns, parsed_dict).  None means not yet loaded.
+_permissions_cache: tuple[int, dict[str, list[str]]] | None = None
+
 
 def _load_user_permissions() -> dict[str, list[str]]:
+    global _permissions_cache
     if _PERMISSIONS_FILE.exists():
-        return json.loads(_PERMISSIONS_FILE.read_text())
+        mtime = _PERMISSIONS_FILE.stat().st_mtime_ns
+        if _permissions_cache is not None and _permissions_cache[0] == mtime:
+            return _permissions_cache[1]
+        data: dict[str, list[str]] = json.loads(_PERMISSIONS_FILE.read_text())
+        _permissions_cache = (mtime, data)
+        return data
     return {}
 
 
 def _save_user_permissions(data: dict[str, list[str]]) -> None:
+    global _permissions_cache
     _PERMISSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PERMISSIONS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _permissions_cache = (_PERMISSIONS_FILE.stat().st_mtime_ns, data)
 
 
 @router.get("/permissions/catalog")
@@ -405,7 +563,7 @@ async def permission_catalog(
     iam: IAMEngine = Depends(get_iam),
 ):
     """권한 카탈로그 + 역할 템플릿 반환."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     # 카테고리별 그룹핑
     categories: dict[str, list] = {}
     for p in PERMISSION_CATALOG:
@@ -425,7 +583,7 @@ async def list_user_permissions(
     iam: IAMEngine = Depends(get_iam),
 ):
     """전체 사용자 권한 목록."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     perms = _load_user_permissions()
     iam_data = iam.as_dict()
     users = []
@@ -452,7 +610,7 @@ async def update_user_permissions(
     iam: IAMEngine = Depends(get_iam),
 ):
     """사용자 개별 권한 업데이트."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     perms = _load_user_permissions()
     perms[body.user_id] = body.permissions
     _save_user_permissions(perms)
@@ -471,7 +629,7 @@ async def apply_permission_template(
     iam: IAMEngine = Depends(get_iam),
 ):
     """역할 템플릿을 사용자에게 적용."""
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     tpl = next((t for t in ROLE_TEMPLATES if t["id"] == body.template_id), None)
     if not tpl:
         raise HTTPException(404, f"Template '{body.template_id}' not found")
@@ -485,78 +643,54 @@ async def apply_permission_template(
 
 @router.get("/inference-status")
 async def inference_status(user_id: str = Depends(get_current_user)):
-    """각 추론 서버의 부하 상태를 신호등 색으로 반환."""
+    """각 추론 서버의 실시간 부하 상태를 신호등 색으로 반환."""
+    import asyncio
     import httpx
 
-    servers = [
-        {
-            "id": "local",
-            "name": "Local 4B",
-            "model": "qwen3.5-4b",
-            "url": getattr(settings, "llama_server_light", "") or getattr(settings, "llama_server_url", "http://localhost:8801/v1"),
-            "description": "로컬 Metal 가속",
-        },
-    ]
-    heavy_url = getattr(settings, "llama_server_heavy", "")
-    if heavy_url:
-        servers.append({
-            "id": "gpu",
-            "name": "GPU 9B",
-            "model": "qwen3.5-9b",
-            "url": heavy_url,
-            "description": "원격 GPU 서버",
-        })
+    servers = _load_gpu_servers()
 
-    results = []
-    async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
-        for srv in servers:
-            base = srv["url"].replace("/v1", "")
-            try:
-                # llama-server /health 또는 /slots 엔드포인트
-                r = await client.get(f"{base}/health")
-                if r.status_code == 200:
-                    data = r.json()
-                    # llama-server는 /health에서 slots 상태 반환
-                    status = data.get("status", "ok")
+    async def _probe(client: httpx.AsyncClient, srv: dict[str, Any]) -> dict[str, Any]:
+        base = srv["url"].replace("/v1", "")
+        try:
+            r = await client.get(f"{base}/health")
+            if r.status_code == 200:
+                # /slots에서 상세 부하 확인
+                try:
+                    sr = await client.get(f"{base}/slots")
+                    slots = sr.json()
+                    total_slots = len(slots)
+                    busy_slots = sum(1 for s in slots if s.get("state") != 0)
+                    load_pct = int(busy_slots / max(total_slots, 1) * 100)
+                except Exception:
+                    load_pct = 0
+                    total_slots = 0
+                    busy_slots = 0
 
-                    # /slots에서 상세 부하 확인
-                    try:
-                        sr = await client.get(f"{base}/slots")
-                        slots = sr.json()
-                        total_slots = len(slots)
-                        busy_slots = sum(1 for s in slots if s.get("state") != 0)
-                        load_pct = int(busy_slots / max(total_slots, 1) * 100)
-                    except Exception:
-                        load_pct = 0
-                        total_slots = 0
-                        busy_slots = 0
-
-                    # 신호등: 0-40% 초록, 40-75% 주황, 75%+ 빨강
-                    if load_pct < 40:
-                        signal = "green"
-                        label = "원활"
-                    elif load_pct < 75:
-                        signal = "yellow"
-                        label = "보통"
-                    else:
-                        signal = "red"
-                        label = "혼잡"
-
-                    results.append({
-                        **srv,
-                        "online": True,
-                        "signal": signal,
-                        "label": label,
-                        "load_pct": load_pct,
-                        "slots_total": total_slots,
-                        "slots_busy": busy_slots,
-                    })
+                # 신호등: 0-40% 초록, 40-75% 주황, 75%+ 빨강
+                if load_pct < 40:
+                    signal, label = "green", "원활"
+                elif load_pct < 75:
+                    signal, label = "yellow", "보통"
                 else:
-                    results.append({**srv, "online": False, "signal": "red", "label": "오프라인", "load_pct": 0})
-            except Exception:
-                results.append({**srv, "online": False, "signal": "red", "label": "오프라인", "load_pct": 0})
+                    signal, label = "red", "혼잡"
 
-    return {"servers": results}
+                return {
+                    **srv,
+                    "online": True,
+                    "signal": signal,
+                    "label": label,
+                    "load_pct": load_pct,
+                    "slots_total": total_slots,
+                    "slots_busy": busy_slots,
+                }
+            return {**srv, "online": False, "signal": "red", "label": "오프라인", "load_pct": 0}
+        except Exception:
+            return {**srv, "online": False, "signal": "red", "label": "오프라인", "load_pct": 0}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
+        results = await asyncio.gather(*[_probe(client, srv) for srv in servers])
+
+    return {"servers": list(results)}
 
 
 # ─── 인프라 (K8s 연동 placeholder) ───────────────────────────────────────────
@@ -566,7 +700,7 @@ async def get_infra_status(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ):
-    _require_admin(user_id, iam)
+    require_admin(user_id, iam)
     import shutil
     import platform
 

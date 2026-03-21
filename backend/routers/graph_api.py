@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.core.iam import IAMEngine
-from backend.dependencies import get_current_user, get_iam
+from backend.dependencies import get_current_user, get_iam, require_admin
 from backend.agents.checkpointer import write_audit_record
 
 logger = logging.getLogger(__name__)
@@ -85,18 +85,7 @@ def _get_extractor() -> Any:
     return _graph_extractor
 
 
-def _require_admin(user_id: str, iam: IAMEngine) -> None:
-    """Raise 403 if *user_id* does not hold the ``admin`` role.
-
-    Args:
-        user_id: Requesting user ID.
-        iam: Loaded IAM engine.
-
-    Raises:
-        :class:`fastapi.HTTPException`: HTTP 403 when the user is not admin.
-    """
-    if "admin" not in iam.get_user_roles(user_id):
-        raise HTTPException(status_code=403, detail="Admin role required")
+_require_admin = require_admin  # backward compat alias
 
 
 # ---------------------------------------------------------------------------
