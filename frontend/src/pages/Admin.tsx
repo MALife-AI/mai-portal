@@ -4,7 +4,7 @@ import {
   Shield, ShieldOff, Users, Activity, Settings2, FileText,
   Server, Eye, CheckCircle2, XCircle, AlertTriangle,
   Loader2, RefreshCw, Save, Cpu, HardDrive, Gauge,
-  Building2, Plus, Trash2, Edit3,
+  Building2, Plus, Trash2, Edit3, KeyRound, Copy,
 } from 'lucide-react'
 import { adminApi, getUserId, type IamConfig, type KillSwitchStatus } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
@@ -70,7 +70,7 @@ interface GuardrailConfig {
   custom_rules: { id: string; name: string; pattern: string; action: string; description: string }[]
 }
 
-type Tab = 'overview' | 'iam' | 'departments' | 'model' | 'metrics' | 'guardrails' | 'governance' | 'infra'
+type Tab = 'overview' | 'iam' | 'departments' | 'api-keys' | 'model' | 'metrics' | 'guardrails' | 'governance' | 'infra'
 
 // ─── Overview ────────────────────────────────────────────────────────────────
 
@@ -578,6 +578,119 @@ function MetricsTab() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── API Keys ───────────────────────────────────────────────────────────────
+
+function ApiKeysTab() {
+  const [keys, setKeys] = useState<any[]>([])
+  const [newLabel, setNewLabel] = useState('')
+  const [newUserId, setNewUserId] = useState('')
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
+  const toast = useToast()
+
+  useEffect(() => { api('/api/v1/admin/api-keys').then(d => setKeys(d.keys || [])) }, [])
+
+  async function createKey() {
+    const body: any = { label: newLabel || 'default' }
+    if (newUserId) body.user_id = newUserId
+    const res = await api('/api/v1/admin/api-keys', { method: 'POST', body: JSON.stringify(body) })
+    if (res.api_key) {
+      setCreatedKey(res.api_key)
+      toast.success('API 키 발급', res.user_id)
+      setNewLabel('')
+      setNewUserId('')
+      api('/api/v1/admin/api-keys').then(d => setKeys(d.keys || []))
+    }
+  }
+
+  async function revokeKey(prefix: string) {
+    await api(`/api/v1/admin/api-keys/${prefix}`, { method: 'DELETE' })
+    toast.success('API 키 폐기', prefix)
+    setKeys(prev => prev.filter(k => !k.key.startsWith(prefix)))
+  }
+
+  function copyKey() {
+    if (createdKey) {
+      navigator.clipboard.writeText(createdKey)
+      toast.success('클립보드에 복사됨', '')
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-display font-semibold text-surface-900 text-lg">API 키 관리</h3>
+
+      {/* 새 키 발급 */}
+      <div className="panel p-4 space-y-3">
+        <p className="text-xs font-semibold text-surface-800">새 API 키 발급</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-2xs text-surface-600">라벨</label>
+            <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+              placeholder="예: 외부 시스템 연동" className="input-field w-full mt-1 text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600">사용자 ID (비우면 본인)</label>
+            <input value={newUserId} onChange={e => setNewUserId(e.target.value)}
+              placeholder="admin01" className="input-field w-full mt-1 font-mono text-xs" />
+          </div>
+          <div className="flex items-end">
+            <button onClick={createKey} className="btn-primary text-xs flex items-center gap-1 w-full justify-center">
+              <KeyRound size={12} /> 발급
+            </button>
+          </div>
+        </div>
+
+        {createdKey && (
+          <div className="rounded p-3 flex items-center gap-2" style={{ background: 'rgba(52,199,89,0.1)', border: '1px solid rgba(52,199,89,0.3)' }}>
+            <KeyRound size={14} className="text-status-success shrink-0" />
+            <code className="text-xs font-mono text-surface-900 flex-1 break-all">{createdKey}</code>
+            <button onClick={copyKey} className="btn-secondary text-2xs flex items-center gap-1 shrink-0"><Copy size={10} /> 복사</button>
+          </div>
+        )}
+        {createdKey && (
+          <p className="text-2xs text-status-warning">이 키는 다시 표시되지 않습니다. 지금 복사해주세요.</p>
+        )}
+      </div>
+
+      {/* 사용법 */}
+      <div className="panel p-4">
+        <p className="text-xs font-semibold text-surface-800 mb-2">사용법</p>
+        <div className="rounded p-3 font-mono text-2xs space-y-1" style={{ background: 'var(--color-bg-primary)' }}>
+          <p className="text-surface-600"># X-User-Id 대신 Bearer 토큰으로 인증</p>
+          <p className="text-gold-500">curl -H "Authorization: Bearer mlk_..." http://host:9001/api/v1/search/?q=보험</p>
+        </div>
+      </div>
+
+      {/* 발급된 키 목록 */}
+      <div className="panel p-4">
+        <p className="text-xs font-semibold text-surface-800 mb-3">발급된 키</p>
+        {keys.length === 0 ? (
+          <p className="text-xs text-surface-600 text-center py-4">발급된 API 키가 없습니다</p>
+        ) : (
+          <div className="space-y-2">
+            {keys.map((k: any, i: number) => (
+              <div key={i} className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <div className="flex items-center gap-3">
+                  <KeyRound size={13} className="text-gold-500" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs font-mono text-surface-900">{k.key}</code>
+                      <span className="tag tag-blue text-2xs">{k.label}</span>
+                    </div>
+                    <p className="text-2xs text-surface-600">사용자: {k.user_id} · 생성: {k.created_at?.split('T')[0]}</p>
+                  </div>
+                </div>
+                <button onClick={() => revokeKey(k.key.split('...')[0])}
+                  className="text-surface-600 hover:text-status-error"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1222,6 +1335,7 @@ export default function Admin() {
     { id: 'overview', label: '개요', icon: Eye },
     { id: 'iam', label: 'IAM', icon: Users },
     { id: 'departments', label: '부서', icon: Building2 },
+    { id: 'api-keys', label: 'API 키', icon: KeyRound },
     { id: 'model', label: '모델', icon: Settings2 },
     { id: 'metrics', label: '메트릭', icon: Activity },
     { id: 'guardrails', label: '가드레일', icon: ShieldOff },
@@ -1257,6 +1371,7 @@ export default function Admin() {
         {tab === 'overview' && <OverviewTab />}
         {tab === 'iam' && <IamTab />}
         {tab === 'departments' && <DepartmentsTab />}
+        {tab === 'api-keys' && <ApiKeysTab />}
         {tab === 'model' && <ModelTab />}
         {tab === 'metrics' && <MetricsTab />}
         {tab === 'guardrails' && <GuardrailsTab />}

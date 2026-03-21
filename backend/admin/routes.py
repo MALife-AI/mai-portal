@@ -443,6 +443,104 @@ async def update_doc_permissions(
     return {"status": "updated", "path": body.path}
 
 
+# ─── API 키 관리 ─────────────────────────────────────────────────────────────
+
+import secrets as _secrets
+
+_API_KEYS_PATH = Path(settings.vault_root).parent / "data" / "api_keys.json"
+
+
+def _load_api_keys_full() -> list[dict[str, Any]]:
+    if _API_KEYS_PATH.exists():
+        return json.loads(_API_KEYS_PATH.read_text(encoding="utf-8")).get("keys", [])
+    return []
+
+
+def _save_api_keys_full(keys: list[dict[str, Any]]) -> None:
+    _API_KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _API_KEYS_PATH.write_text(
+        json.dumps({"keys": keys}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """API 키 목록 조회 (관리자: 전체, 일반 사용자: 본인만)."""
+    keys = _load_api_keys_full()
+    is_admin = "admin" in iam.get_user_roles(user_id)
+    if not is_admin:
+        keys = [k for k in keys if k["user_id"] == user_id]
+    # 키 값은 마스킹 (앞 8자만 표시)
+    return {
+        "keys": [
+            {**k, "key": k["key"][:8] + "..." + k["key"][-4:]}
+            for k in keys
+        ]
+    }
+
+
+@router.post("/api-keys")
+async def create_api_key(
+    body: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """API 키 발급. 관리자는 다른 사용자용도 발급 가능."""
+    target_user = body.get("user_id", user_id)
+    is_admin = "admin" in iam.get_user_roles(user_id)
+
+    if target_user != user_id and not is_admin:
+        raise HTTPException(403, "다른 사용자의 API 키는 관리자만 발급 가능합니다")
+
+    if not iam.user_exists(target_user):
+        raise HTTPException(404, f"사용자 '{target_user}'를 찾을 수 없습니다")
+
+    api_key = f"mlk_{_secrets.token_urlsafe(32)}"
+    label = body.get("label", "default")
+
+    keys = _load_api_keys_full()
+    keys.append({
+        "key": api_key,
+        "user_id": target_user,
+        "label": label,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user_id,
+    })
+    _save_api_keys_full(keys)
+
+    return {"api_key": api_key, "user_id": target_user, "label": label}
+
+
+@router.delete("/api-keys/{key_prefix}")
+async def revoke_api_key(
+    key_prefix: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """API 키 폐기. key_prefix는 앞 8자."""
+    keys = _load_api_keys_full()
+    is_admin = "admin" in iam.get_user_roles(user_id)
+
+    new_keys = []
+    revoked = False
+    for k in keys:
+        if k["key"].startswith(key_prefix):
+            if k["user_id"] != user_id and not is_admin:
+                raise HTTPException(403, "다른 사용자의 키는 관리자만 폐기 가능합니다")
+            revoked = True
+        else:
+            new_keys.append(k)
+
+    if not revoked:
+        raise HTTPException(404, "해당 키를 찾을 수 없습니다")
+
+    _save_api_keys_full(new_keys)
+    return {"status": "revoked", "key_prefix": key_prefix}
+
+
 # ─── 가드레일 설정 ────────────────────────────────────────────────────────────
 
 GUARDRAILS_PATH = Path(settings.vault_root).parent / "data" / "guardrails.json"
