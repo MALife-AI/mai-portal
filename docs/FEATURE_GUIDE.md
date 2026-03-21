@@ -93,7 +93,8 @@ AI 에이전트에 질문하고 답변을 받습니다.
 
 ### 4.1 파일 업로드
 - 드래그 앤 드롭 또는 파일 선택
-- 지원 포맷: PDF, HWP, PPTX, DOCX, TXT, MD
+- 지원 포맷: HWP, HWPX, PPTX, DOCX, TXT, MD
+- HWPX: 네이티브 XML 파싱 → DOCX → 마크다운 (수식/표/셀병합 지원, 0.6초)
 - 최대 50MB
 
 ### 4.2 폴더 업로드
@@ -104,11 +105,11 @@ AI 에이전트에 질문하고 답변을 받습니다.
 - 백그라운드 태스크로 실행 (페이지 이동해도 계속)
 - 변환 중지 버튼으로 언제든 취소 가능
 
-### 4.4 PDF → DOCX → 그래프 적재
-- POST `/api/v1/ingest/pdf-to-docx`
-- pdf2docx로 레이아웃 보존 DOCX 변환
-- 마크다운 인제스션 + 지식그래프 엔티티 추출
-- 스캔 PDF는 자동 OCR (tesseract 한국어)
+### 4.4 HWPX 네이티브 변환
+- HWPX(OWPML) → DOCX → Pandoc → 마크다운
+- LibreOffice 없이 XML 직접 파싱 (hwpx2docx)
+- 표(셀 병합), 수식(OMML), 페이지 설정, 글자 서식 지원
+- 0.6초 이내 변환 완료
 
 ### 4.5 백그라운드 태스크바
 
@@ -198,6 +199,8 @@ AI 에이전트에 질문하고 답변을 받습니다.
 - **부서 삭제** — 삭제 버튼
 - 사용자의 소속 부서에 따라 에이전트가 관련 사규/매뉴얼을 우선 참조
 - IAM 탭에서 사용자별 소속 부서 지정 가능
+- **부서별 공용 문서 접근 제어**: `Shared/{부서ID}/` 폴더는 해당 부서 소속 + admin만 접근 가능
+- 벡터 검색, 지식그래프, 엔티티 조회 모두 부서 ACL 자동 적용
 
 ### 8.4 모델 설정
 
@@ -216,7 +219,22 @@ AI 에이전트에 질문하고 답변을 받습니다.
 - 사용자별/스킬별 사용량
 - Vault 용량, 에러율
 
-### 8.6 거버넌스 (컴플라이언스)
+### 8.6 가드레일
+
+![가드레일](./screenshots/admin-guardrails.png)
+
+AI 에이전트의 입출력 안전 장치를 설정합니다.
+
+- **프롬프트 인젝션 방어** — 위험도 임계값, 최대 입력 길이, 차단 동작(reject/warn/log_only) 설정
+- **주제 제한** — 차단할 주제 키워드 등록 (정치, 종교, 경쟁사 비방 등)
+- **출력 가드레일** — PII 마스킹, 코드 실행 차단, 외부 URL 차단, 최대 출력 길이
+- **속도 제한** — 분당/시간당 최대 쿼리 수, 쿼리당 최대 토큰
+- **콘텐츠 정책** — 출처 인용 필수, 할루시네이션 가드, 신뢰도 임계값, 면책 문구
+- **가드레일 테스트** — 입력 텍스트를 넣으면 위험도 점수, 차단 여부, 매칭된 주제 등을 실시간 검증
+
+설정은 `data/guardrails.json`에 저장되며, 변경 즉시 런타임에 반영됩니다.
+
+### 8.7 거버넌스 (컴플라이언스)
 
 ![거버넌스](./screenshots/admin-governance.png)
 
@@ -224,7 +242,7 @@ AI 에이전트에 질문하고 답변을 받습니다.
 - 권한 위반 횟수, 인젝션 시도 횟수
 - 최근 위반 내역
 
-### 8.7 인프라
+### 8.8 인프라
 
 ![인프라](./screenshots/admin-infra.png)
 
@@ -262,6 +280,10 @@ AI 에이전트에 질문하고 답변을 받습니다.
 | `/api/v1/vault/read` | GET | 문서 읽기 |
 | `/api/v1/ingest/upload` | POST | 파일 업로드 (백그라운드) |
 | `/api/v1/ingest/pdf-to-docx` | POST | PDF→DOCX→그래프 (백그라운드) |
+| `/api/v1/admin/guardrails` | GET/PUT | 가드레일 설정 조회/수정 |
+| `/api/v1/admin/guardrails/{section}` | PATCH | 가드레일 섹션별 수정 |
+| `/api/v1/admin/guardrails/test` | POST | 가드레일 테스트 |
+| `/api/v1/admin/guardrails/reset` | POST | 가드레일 초기화 |
 | `/api/v1/ingest/ingest-local` | POST | 로컬 경로 인제스트 (백그라운드) |
 | `/api/v1/ingest/tasks` | GET | 태스크 목록 |
 | `/api/v1/ingest/tasks/{id}` | DELETE | 태스크 취소 |

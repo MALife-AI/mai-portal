@@ -15,11 +15,11 @@ export default {
           200: '#1f2e4d',
           300: '#2a3d5e',
           400: '#3a4f72',
-          500: '#4a6186',
-          600: '#6b829e',
-          700: '#8da0b8',
-          800: '#a8b8cc',
-          900: '#c8d4e2',
+          500: '#5a7494',
+          600: '#8a9fb8',
+          700: '#a3b5c9',
+          800: '#bcc9d9',
+          900: '#d4dee9',
         },
         // 미래에셋 시그니처 오렌지
         gold: {
@@ -48,7 +48,7 @@ export default {
           warning: '#F5A623',
           error: '#FF3B30',
           info: '#4A90D9',
-          neutral: '#6b829e',
+          neutral: '#8a9fb8',
         },
       },
       fontFamily: {

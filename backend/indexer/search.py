@@ -27,41 +27,46 @@ from backend.indexer.vectorstore import get_collection
 # ACL filter builder
 # ---------------------------------------------------------------------------
 
-def _build_acl_filter(user_id: str, user_roles: list[str]) -> dict[str, Any]:
+def _build_acl_filter(
+    user_id: str,
+    user_roles: list[str],
+    user_department: str = "",
+) -> dict[str, Any]:
     """Build a ChromaDB ``where`` filter that enforces read ACL.
 
-    A document is accessible when **either**:
+    A document is accessible when **any** of:
     - The user owns it (``owner == user_id``), **or**
-    - The document's ``allowed_roles`` string contains one of the user's roles.
+    - The document's ``allowed_roles`` string contains one of the user's roles, **or**
+    - The document's ``allowed_departments`` string contains the user's department.
 
-    Because ChromaDB does not support ``$in`` on a string field, we expand
-    each role into its own ``$contains`` clause and combine them under
-    ``$or``.  The final ``$or`` always includes the ownership clause so there
-    is always at least one branch.
+    Documents without ``allowed_departments`` (empty string) are not
+    department-restricted and are matched by role/owner clauses only.
 
     Args:
         user_id: Requesting user's identifier.
         user_roles: List of role names assigned to the user.
+        user_department: User's department id (e.g. ``"life_insurance"``).
 
     Returns:
         A dict suitable for passing as ChromaDB's ``where`` parameter.
     """
     owner_clause: dict[str, Any] = {"owner": {"$eq": user_id}}
 
-    if not user_roles:
-        # No roles: fall back to owner-only access (no $or needed)
+    clauses: list[dict[str, Any]] = [owner_clause]
+
+    for role in user_roles:
+        clauses.append({"allowed_roles": {"$contains": role}})
+
+    if user_department:
+        clauses.append({"allowed_departments": {"$contains": user_department}})
+
+    # 부서 미제한 문서 (allowed_departments가 빈 문자열)도 역할 기반으로 접근 가능
+    # → role clause가 이미 커버함
+
+    if len(clauses) == 1:
         return owner_clause
 
-    role_clauses: list[dict[str, Any]] = [
-        {"allowed_roles": {"$contains": role}} for role in user_roles
-    ]
-
-    return {
-        "$or": [
-            owner_clause,
-            *role_clauses,
-        ]
-    }
+    return {"$or": clauses}
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +95,9 @@ def secure_search(
         ``metadatas``, and ``distances`` keys.
     """
     user_roles = iam.get_user_roles(user_id)
+    user_department = iam.get_user_department(user_id)
     collection = get_collection()
-    where_filter = _build_acl_filter(user_id, user_roles)
+    where_filter = _build_acl_filter(user_id, user_roles, user_department)
 
     return collection.query(
         query_texts=[query],
@@ -145,8 +151,9 @@ def hybrid_search(
         - ``score`` – combined relevance score (higher is better)
     """
     user_roles = iam.get_user_roles(user_id)
+    user_department = iam.get_user_department(user_id)
     collection = get_collection()
-    where_filter = _build_acl_filter(user_id, user_roles)
+    where_filter = _build_acl_filter(user_id, user_roles, user_department)
 
     # Over-fetch to give keyword re-ranking enough candidates
     raw = collection.query(
@@ -240,8 +247,9 @@ def search_by_path(
         ``metadatas``, and ``distances`` keys.
     """
     user_roles = iam.get_user_roles(user_id)
+    user_department = iam.get_user_department(user_id)
     collection = get_collection()
-    acl_filter = _build_acl_filter(user_id, user_roles)
+    acl_filter = _build_acl_filter(user_id, user_roles, user_department)
 
     # Intersect ACL filter with path scope using $and
     where_filter: dict[str, Any] = {

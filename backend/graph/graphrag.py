@@ -198,7 +198,9 @@ class GraphRAGEngine:
         Returns:
             :class:`GraphRAGResult` with graph-only context.
         """
-        matched = self._match_entities(query)
+        matched = self._filter_entities_by_acl(
+            self._match_entities(query), user_id,
+        )
         related_ents: list[Entity] = []
         all_rels: list[Relationship] = []
 
@@ -216,6 +218,9 @@ class GraphRAGEngine:
             if e.id not in seen_ids:
                 seen_ids.add(e.id)
                 unique_related.append(e)
+
+        # ACL 필터: 부서 폴더 접근 권한에 따라 엔티티 필터링
+        unique_related = self._filter_entities_by_acl(unique_related, user_id)
 
         communities = self._get_entity_communities(matched)
         source_docs = self.get_related_documents(
@@ -336,8 +341,10 @@ class GraphRAGEngine:
             self._run_vector_search, query, user_id, user_roles, n_results
         )
 
-        # Step 2: Match entities from query
-        matched = self._match_entities(query)
+        # Step 2: Match entities from query (ACL filtered)
+        matched = self._filter_entities_by_acl(
+            self._match_entities(query), user_id,
+        )
 
         # Step 3: Graph traversal
         related_ents: list[Entity] = []
@@ -349,13 +356,14 @@ class GraphRAGEngine:
             related_ents.extend(neighbors)
             all_rels.extend(rels)
 
-        # Deduplicate related entities
+        # Deduplicate related entities + ACL filter
         seen_ids: set[str] = {e.id for e in matched}
         unique_related: list[Entity] = []
         for e in related_ents:
             if e.id not in seen_ids:
                 seen_ids.add(e.id)
                 unique_related.append(e)
+        unique_related = self._filter_entities_by_acl(unique_related, user_id)
 
         # Step 4: Community summaries
         communities = self._get_entity_communities(matched)
@@ -503,27 +511,35 @@ class GraphRAGEngine:
     # Document retrieval helpers
     # ------------------------------------------------------------------
 
+    def _filter_entities_by_acl(
+        self,
+        entities: list[Entity],
+        user_id: str,
+    ) -> list[Entity]:
+        """부서 폴더 ACL에 따라 접근 불가 문서 출처의 엔티티를 필터링.
+
+        엔티티의 source_paths 중 하나라도 사용자가 읽을 수 있으면 포함.
+        source_paths가 비어있는 엔티티는 항상 포함.
+        """
+        if self._iam is None:
+            return entities
+
+        filtered: list[Entity] = []
+        for entity in entities:
+            if not entity.source_paths:
+                filtered.append(entity)
+                continue
+            if any(self._iam.can_read(user_id, p) for p in entity.source_paths):
+                filtered.append(entity)
+        return filtered
+
     def get_related_documents(
         self,
         entity_ids: list[str],
         user_id: str,
         user_roles: list[str],
     ) -> list[str]:
-        """Collect source document paths from entities, filtered by ACL.
-
-        Retrieves the ``source_paths`` field from each entity in *entity_ids*,
-        deduplicates the paths, and then filters them against the user's read
-        permissions via the IAM engine (if configured).
-
-        Args:
-            entity_ids: List of entity IDs whose source paths to gather.
-            user_id: Requesting user's identifier.
-            user_roles: User's role list (used only when IAM engine is absent
-                for a permissive fallback).
-
-        Returns:
-            Deduplicated list of accessible vault-relative document paths.
-        """
+        """Collect source document paths from entities, filtered by ACL."""
         seen: dict[str, None] = {}  # ordered set
 
         for entity_id in entity_ids:
@@ -538,7 +554,7 @@ class GraphRAGEngine:
         if self._iam is None:
             return all_paths
 
-        # Filter by IAM read permissions
+        # Filter by IAM read permissions (includes department folder check)
         return [p for p in all_paths if self._iam.can_read(user_id, p)]
 
     # ------------------------------------------------------------------

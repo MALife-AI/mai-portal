@@ -85,6 +85,17 @@ class HWPConverter:
         if not file_path.exists():
             raise HWPConversionError(f"File not found: {file_path}")
 
+        # HWPX: hwpx2docx 네이티브 변환 우선 시도
+        if ext == ".hwpx":
+            try:
+                return self._hwpx2docx_convert(file_path)
+            except HWPConversionError as exc:
+                logger.warning(
+                    "hwpx2docx failed for %s (%s); falling back to LibreOffice",
+                    file_path.name,
+                    exc,
+                )
+
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             try:
@@ -100,7 +111,7 @@ class HWPConverter:
             return self._hwp5txt_fallback(file_path)
         except HWPConversionError as fb_exc:
             raise HWPConversionError(
-                f"Both conversion strategies failed for {file_path.name}. "
+                f"All conversion strategies failed for {file_path.name}. "
                 f"LibreOffice: <see log>; hwp5txt: {fb_exc}"
             ) from fb_exc
 
@@ -133,6 +144,38 @@ class HWPConverter:
     # ------------------------------------------------------------------
     # Conversion helpers
     # ------------------------------------------------------------------
+
+    def _hwpx2docx_convert(self, file_path: Path) -> dict[str, Any]:
+        """HWPX → DOCX (hwpx2docx 네이티브) → Pandoc AST JSON.
+
+        LibreOffice 없이 HWPX의 XML 구조를 직접 파싱하여 python-docx로
+        DOCX를 생성한 뒤, Pandoc으로 AST JSON을 얻는다.
+        표, 수식, 셀 병합, 페이지 설정 등을 지원한다.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            docx_path = tmp_path / f"{file_path.stem}.docx"
+
+            try:
+                from backend.ingestion.converters.hwpx2docx import (
+                    HwpxParser,
+                    DocxWriter,
+                )
+
+                parser = HwpxParser(str(file_path))
+                writer = DocxWriter(parser)
+                writer.convert(str(docx_path))
+                parser.close()
+            except Exception as exc:
+                raise HWPConversionError(
+                    f"hwpx2docx conversion failed: {exc}"
+                ) from exc
+
+            if not docx_path.exists():
+                raise HWPConversionError("hwpx2docx produced no DOCX output")
+
+            logger.info("hwpx2docx converted %s → %s", file_path.name, docx_path.name)
+            return self._docx_to_ast(docx_path)
 
     def _libreoffice_convert(
         self, file_path: Path, tmp_dir: Path

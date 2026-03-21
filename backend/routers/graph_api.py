@@ -126,26 +126,27 @@ class BuildDocumentRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _filter_entity_by_department(entity: Any, user_id: str, iam: IAMEngine) -> bool:
+    """엔티티의 source_paths 중 하나라도 읽기 가능하면 True. source_paths 없으면 True."""
+    source_paths = getattr(entity, "source_paths", [])
+    if not source_paths:
+        return True
+    return any(iam.can_read(user_id, p) for p in source_paths)
+
+
 @router.get("/entities", summary="엔티티 검색")
 async def search_entities(
     q: str = Query("", description="검색 쿼리"),
     type: str | None = Query(None, description="엔티티 타입 필터"),
     limit: int = Query(20, ge=1, le=100, description="최대 결과 수"),
     user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
-    """Search entities by fuzzy name matching.
-
-    Args:
-        q: Search query string.  Returns all entities when empty.
-        type: Optional entity type filter (e.g. ``"product"``, ``"person"``).
-        limit: Maximum number of results.
-        user_id: Authenticated user ID (from ``X-User-Id`` header).
-
-    Returns:
-        Dict with ``entities`` list and ``total`` count.
-    """
+    """Search entities by fuzzy name matching, filtered by department ACL."""
     store = _get_store()
-    results = store.search_entities(query=q, entity_type=type, limit=limit)
+    # Over-fetch to compensate for ACL filtering
+    results = store.search_entities(query=q, entity_type=type, limit=limit * 3)
+    filtered = [e for e in results if _filter_entity_by_department(e, user_id, iam)][:limit]
     return {
         "entities": [
             {
@@ -153,12 +154,12 @@ async def search_entities(
                 "name": e.name,
                 "entity_type": e.entity_type,
                 "mentions": e.mentions,
-                "source_paths": e.source_paths,
+                "source_paths": [p for p in e.source_paths if iam.can_read(user_id, p)],
                 "properties": e.properties,
             }
-            for e in results
+            for e in filtered
         ],
-        "total": len(results),
+        "total": len(filtered),
     }
 
 
@@ -166,27 +167,22 @@ async def search_entities(
 async def get_entity(
     entity_id: str,
     user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
-    """Return entity details plus its immediate (depth-1) neighbours.
-
-    Args:
-        entity_id: Unique entity identifier.
-        user_id: Authenticated user ID.
-
-    Returns:
-        Dict with ``entity``, ``neighbors``, and ``relationships`` fields.
-
-    Raises:
-        :class:`fastapi.HTTPException`: HTTP 404 when entity not found.
-    """
+    """Return entity details plus its immediate neighbours, filtered by department ACL."""
     store = _get_store()
     entity = store.get_entity(entity_id)
     if entity is None:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
 
+    # 부서 폴더 접근 제어: 엔티티 출처가 모두 접근 불가하면 404
+    if not _filter_entity_by_department(entity, user_id, iam):
+        raise HTTPException(status_code=403, detail="이 엔티티에 대한 접근 권한이 없습니다")
+
     _log_graph_action(user_id, "view_entity", {"entity_id": entity_id, "entity_name": entity.name})
 
     neighbors, relationships = store.get_neighbors(entity_id, depth=1)
+    filtered_neighbors = [e for e in neighbors if _filter_entity_by_department(e, user_id, iam)]
 
     return {
         "entity": {
@@ -194,7 +190,7 @@ async def get_entity(
             "name": entity.name,
             "entity_type": entity.entity_type,
             "mentions": entity.mentions,
-            "source_paths": entity.source_paths,
+            "source_paths": [p for p in entity.source_paths if iam.can_read(user_id, p)],
             "properties": entity.properties,
         },
         "neighbors": [
@@ -204,9 +200,9 @@ async def get_entity(
                 "entity_type": e.entity_type,
                 "mentions": e.mentions,
                 "properties": e.properties or {},
-                "source_paths": e.source_paths or [],
+                "source_paths": [p for p in (e.source_paths or []) if iam.can_read(user_id, p)],
             }
-            for e in neighbors
+            for e in filtered_neighbors
         ],
         "relationships": [
             {
@@ -217,6 +213,7 @@ async def get_entity(
                 "source_path": r.source_path,
             }
             for r in relationships
+            if not r.source_path or iam.can_read(user_id, r.source_path)
         ],
     }
 
@@ -297,21 +294,31 @@ async def get_stats(
 @router.get("/visualization", summary="전체 그래프 시각화 데이터")
 async def get_visualization(
     user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
-    """Return the full graph as nodes + edges + communities for rendering.
-
-    Intended for frontend graph visualisation libraries (e.g. D3, Cytoscape).
-    For large graphs (>500 nodes) consider fetching per-entity subgraphs
-    instead.
-
-    Args:
-        user_id: Authenticated user ID.
-
-    Returns:
-        Dict with ``nodes``, ``edges``, and ``communities`` lists.
-    """
+    """Return the full graph filtered by department ACL."""
     store = _get_store()
-    return store.to_visualization_data()
+    data = store.to_visualization_data()
+
+    # 부서 ACL로 노드/엣지 필터링
+    filtered_nodes = []
+    accessible_ids: set[str] = set()
+    for node in data.get("nodes", []):
+        source_paths = node.get("source_paths", [])
+        if not source_paths or any(iam.can_read(user_id, p) for p in source_paths):
+            filtered_nodes.append(node)
+            accessible_ids.add(node.get("id", ""))
+
+    filtered_edges = [
+        edge for edge in data.get("edges", [])
+        if edge.get("source") in accessible_ids and edge.get("target") in accessible_ids
+    ]
+
+    return {
+        "nodes": filtered_nodes,
+        "edges": filtered_edges,
+        "communities": data.get("communities", []),
+    }
 
 
 @router.post("/build", summary="그래프 재구축 (관리자 전용)")

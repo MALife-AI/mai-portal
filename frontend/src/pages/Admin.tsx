@@ -61,7 +61,16 @@ interface InfraData {
   services?: ServiceItem[]
 }
 
-type Tab = 'overview' | 'iam' | 'departments' | 'model' | 'metrics' | 'governance' | 'infra'
+interface GuardrailConfig {
+  prompt_injection: { enabled: boolean; risk_threshold: number; max_input_length: number; block_action: string }
+  topic_restrictions: { enabled: boolean; blocked_topics: string[]; warn_topics: string[] }
+  output_guardrails: { pii_masking: boolean; max_output_length: number; block_code_execution: boolean; block_external_urls: boolean }
+  rate_limits: { enabled: boolean; max_queries_per_minute: number; max_queries_per_hour: number; max_tokens_per_query: number }
+  content_policy: { require_citation: boolean; hallucination_guard: boolean; confidence_threshold: number; disclaimer_footer: string }
+  custom_rules: { id: string; name: string; pattern: string; action: string; description: string }[]
+}
+
+type Tab = 'overview' | 'iam' | 'departments' | 'model' | 'metrics' | 'guardrails' | 'governance' | 'infra'
 
 // ─── Overview ────────────────────────────────────────────────────────────────
 
@@ -72,7 +81,7 @@ function OverviewTab() {
   const toast = useToast()
 
   useEffect(() => {
-    adminApi.killSwitchStatus().then(setKs)
+    adminApi.getKillSwitchStatus().then(setKs)
     api('/api/v1/admin/metrics').then(setMetrics)
     api('/api/v1/admin/governance').then(setGovernance)
   }, [])
@@ -85,7 +94,7 @@ function OverviewTab() {
       await adminApi.activateKillSwitch({ reason: '관리자 수동 활성화' })
       toast.error('킬 스위치 활성화', '모든 에이전트 중단')
     }
-    setKs(await adminApi.killSwitchStatus())
+    setKs(await adminApi.getKillSwitchStatus())
   }
 
   const stats = [
@@ -496,6 +505,257 @@ function MetricsTab() {
   )
 }
 
+// ─── Guardrails ─────────────────────────────────────────────────────────────
+
+function GuardrailsTab() {
+  const [config, setConfig] = useState<GuardrailConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [testText, setTestText] = useState('')
+  const [testResult, setTestResult] = useState<any>(null)
+  const [newTopic, setNewTopic] = useState('')
+  const toast = useToast()
+
+  useEffect(() => { api('/api/v1/admin/guardrails').then(setConfig) }, [])
+
+  async function save() {
+    if (!config) return
+    setSaving(true)
+    try {
+      await api('/api/v1/admin/guardrails', { method: 'PUT', body: JSON.stringify(config) })
+      toast.success('가드레일 설정 저장', '')
+    } catch { toast.error('저장 실패', '') }
+    setSaving(false)
+  }
+
+  async function reset() {
+    const res = await api('/api/v1/admin/guardrails/reset', { method: 'POST' })
+    setConfig(res.config)
+    toast.success('기본값으로 초기화', '')
+  }
+
+  async function runTest() {
+    const res = await api('/api/v1/admin/guardrails/test', { method: 'POST', body: JSON.stringify({ text: testText }) })
+    setTestResult(res)
+  }
+
+  if (!config) return <div className="flex justify-center py-12"><Loader2 className="animate-spin text-surface-600" /></div>
+
+  const update = (section: keyof GuardrailConfig, key: string, value: any) => {
+    setConfig(prev => {
+      if (!prev) return prev
+      return { ...prev, [section]: { ...(prev[section] as any), [key]: value } }
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-display font-semibold text-surface-900 text-lg">가드레일 설정</h3>
+        <div className="flex gap-2">
+          <button onClick={reset} className="btn-secondary text-xs flex items-center gap-1"><RefreshCw size={12} /> 초기화</button>
+          <button onClick={save} disabled={saving} className="btn-primary text-xs flex items-center gap-1">
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} 저장
+          </button>
+        </div>
+      </div>
+
+      {/* 프롬프트 인젝션 방어 */}
+      <div className="panel p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-surface-800">프롬프트 인젝션 방어</h4>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={config.prompt_injection.enabled}
+              onChange={e => update('prompt_injection', 'enabled', e.target.checked)}
+              className="accent-gold-500" />
+            <span className="text-xs text-surface-700">{config.prompt_injection.enabled ? '활성' : '비활성'}</span>
+          </label>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">위험도 임계값</label>
+            <input type="number" step="0.05" min="0" max="1" value={config.prompt_injection.risk_threshold}
+              onChange={e => update('prompt_injection', 'risk_threshold', parseFloat(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">최대 입력 길이</label>
+            <input type="number" step="1000" value={config.prompt_injection.max_input_length}
+              onChange={e => update('prompt_injection', 'max_input_length', parseInt(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">차단 동작</label>
+            <select value={config.prompt_injection.block_action}
+              onChange={e => update('prompt_injection', 'block_action', e.target.value)}
+              className="input-field text-xs">
+              <option value="reject">차단 (reject)</option>
+              <option value="warn">경고 (warn)</option>
+              <option value="log_only">로그만 (log_only)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* 주제 제한 */}
+      <div className="panel p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-surface-800">주제 제한</h4>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={config.topic_restrictions.enabled}
+              onChange={e => update('topic_restrictions', 'enabled', e.target.checked)}
+              className="accent-gold-500" />
+            <span className="text-xs text-surface-700">{config.topic_restrictions.enabled ? '활성' : '비활성'}</span>
+          </label>
+        </div>
+        <div>
+          <label className="text-2xs text-surface-600 block mb-1">차단 주제</label>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {config.topic_restrictions.blocked_topics.map((t, i) => (
+              <span key={i} className="tag tag-error flex items-center gap-1">
+                {t}
+                <button onClick={() => {
+                  const topics = [...config.topic_restrictions.blocked_topics]
+                  topics.splice(i, 1)
+                  update('topic_restrictions', 'blocked_topics', topics)
+                }} className="hover:text-white"><XCircle size={10} /></button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input value={newTopic} onChange={e => setNewTopic(e.target.value)}
+              placeholder="차단할 주제 입력" className="input-field text-xs flex-1"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newTopic.trim()) {
+                  update('topic_restrictions', 'blocked_topics', [...config.topic_restrictions.blocked_topics, newTopic.trim()])
+                  setNewTopic('')
+                }
+              }} />
+            <button onClick={() => {
+              if (newTopic.trim()) {
+                update('topic_restrictions', 'blocked_topics', [...config.topic_restrictions.blocked_topics, newTopic.trim()])
+                setNewTopic('')
+              }
+            }} className="btn-secondary text-xs"><Plus size={12} /></button>
+          </div>
+        </div>
+      </div>
+
+      {/* 출력 가드레일 */}
+      <div className="panel p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-surface-800">출력 가드레일</h4>
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            ['pii_masking', 'PII 마스킹'],
+            ['block_code_execution', '코드 실행 차단'],
+            ['block_external_urls', '외부 URL 차단'],
+          ] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={(config.output_guardrails as any)[key]}
+                onChange={e => update('output_guardrails', key, e.target.checked)}
+                className="accent-gold-500" />
+              <span className="text-xs text-surface-700">{label}</span>
+            </label>
+          ))}
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">최대 출력 길이</label>
+            <input type="number" step="5000" value={config.output_guardrails.max_output_length}
+              onChange={e => update('output_guardrails', 'max_output_length', parseInt(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+        </div>
+      </div>
+
+      {/* 속도 제한 */}
+      <div className="panel p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-surface-800">속도 제한</h4>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={config.rate_limits.enabled}
+              onChange={e => update('rate_limits', 'enabled', e.target.checked)}
+              className="accent-gold-500" />
+            <span className="text-xs text-surface-700">{config.rate_limits.enabled ? '활성' : '비활성'}</span>
+          </label>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">분당 최대 쿼리</label>
+            <input type="number" value={config.rate_limits.max_queries_per_minute}
+              onChange={e => update('rate_limits', 'max_queries_per_minute', parseInt(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">시간당 최대 쿼리</label>
+            <input type="number" value={config.rate_limits.max_queries_per_hour}
+              onChange={e => update('rate_limits', 'max_queries_per_hour', parseInt(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">쿼리당 최대 토큰</label>
+            <input type="number" value={config.rate_limits.max_tokens_per_query}
+              onChange={e => update('rate_limits', 'max_tokens_per_query', parseInt(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+        </div>
+      </div>
+
+      {/* 콘텐츠 정책 */}
+      <div className="panel p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-surface-800">콘텐츠 정책</h4>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={config.content_policy.require_citation}
+              onChange={e => update('content_policy', 'require_citation', e.target.checked)}
+              className="accent-gold-500" />
+            <span className="text-xs text-surface-700">출처 인용 필수</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={config.content_policy.hallucination_guard}
+              onChange={e => update('content_policy', 'hallucination_guard', e.target.checked)}
+              className="accent-gold-500" />
+            <span className="text-xs text-surface-700">할루시네이션 가드</span>
+          </label>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">신뢰도 임계값</label>
+            <input type="number" step="0.05" min="0" max="1" value={config.content_policy.confidence_threshold}
+              onChange={e => update('content_policy', 'confidence_threshold', parseFloat(e.target.value))}
+              className="input-field text-xs" />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 block mb-1">면책 문구</label>
+            <input value={config.content_policy.disclaimer_footer}
+              onChange={e => update('content_policy', 'disclaimer_footer', e.target.value)}
+              placeholder="응답 하단에 추가할 면책 문구"
+              className="input-field text-xs" />
+          </div>
+        </div>
+      </div>
+
+      {/* 가드레일 테스트 */}
+      <div className="panel p-4 space-y-3">
+        <h4 className="text-sm font-semibold text-surface-800">가드레일 테스트</h4>
+        <textarea value={testText} onChange={e => setTestText(e.target.value)}
+          placeholder="테스트할 입력 텍스트를 입력하세요..."
+          className="input-field text-xs h-20 resize-none" />
+        <button onClick={runTest} disabled={!testText.trim()} className="btn-primary text-xs">검사 실행</button>
+        {testResult && (
+          <div className={cn('p-3 rounded-md text-xs space-y-1', testResult.blocked ? 'bg-red-500/10 border border-red-500/30' : 'bg-green-500/10 border border-green-500/30')}>
+            <div className="flex items-center gap-2 font-semibold">
+              {testResult.blocked ? <XCircle size={14} className="text-status-error" /> : <CheckCircle2 size={14} className="text-status-success" />}
+              {testResult.blocked ? '차단됨' : '통과'}
+            </div>
+            <div className="text-surface-700">위험도 점수: <span className="font-mono">{testResult.risk_score.toFixed(4)}</span> / 임계값: {testResult.threshold}</div>
+            <div className="text-surface-700">텍스트 길이: {testResult.text_length}자</div>
+            {testResult.injection_detected && <div className="text-status-error">프롬프트 인젝션 패턴 감지됨</div>}
+            {testResult.matched_blocked_topics?.length > 0 && (
+              <div className="text-status-warning">차단 주제 매칭: {testResult.matched_blocked_topics.join(', ')}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Governance ──────────────────────────────────────────────────────────────
 
 function GovernanceTab() {
@@ -816,6 +1076,7 @@ export default function Admin() {
     { id: 'departments', label: '부서', icon: Building2 },
     { id: 'model', label: '모델', icon: Settings2 },
     { id: 'metrics', label: '메트릭', icon: Activity },
+    { id: 'guardrails', label: '가드레일', icon: ShieldOff },
     { id: 'governance', label: '거버넌스', icon: Shield },
     { id: 'infra', label: '인프라', icon: Server },
   ]
@@ -850,6 +1111,7 @@ export default function Admin() {
         {tab === 'departments' && <DepartmentsTab />}
         {tab === 'model' && <ModelTab />}
         {tab === 'metrics' && <MetricsTab />}
+        {tab === 'guardrails' && <GuardrailsTab />}
         {tab === 'governance' && <GovernanceTab />}
         {tab === 'infra' && <InfraTab />}
       </motion.div>

@@ -7,3 +7,6 @@ data/
 dist/
 .claude/
 vault/assets/
+node_modules/
+package.json
+package-lock.json

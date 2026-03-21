@@ -434,6 +434,160 @@ async def update_doc_permissions(
     return {"status": "updated", "path": body.path}
 
 
+# ─── 가드레일 설정 ────────────────────────────────────────────────────────────
+
+GUARDRAILS_PATH = Path(settings.vault_root).parent / "data" / "guardrails.json"
+
+_DEFAULT_GUARDRAILS: dict[str, Any] = {
+    "prompt_injection": {
+        "enabled": True,
+        "risk_threshold": 0.7,
+        "max_input_length": 10000,
+        "block_action": "reject",  # reject | warn | log_only
+    },
+    "topic_restrictions": {
+        "enabled": False,
+        "blocked_topics": [],  # e.g. ["정치", "종교", "경쟁사 비방"]
+        "warn_topics": [],
+    },
+    "output_guardrails": {
+        "pii_masking": True,
+        "max_output_length": 50000,
+        "block_code_execution": True,
+        "block_external_urls": False,
+    },
+    "rate_limits": {
+        "enabled": True,
+        "max_queries_per_minute": 30,
+        "max_queries_per_hour": 500,
+        "max_tokens_per_query": 8000,
+    },
+    "content_policy": {
+        "require_citation": True,
+        "hallucination_guard": True,
+        "confidence_threshold": 0.3,
+        "disclaimer_footer": "",
+    },
+    "custom_rules": [],  # list of {id, name, pattern, action, description}
+}
+
+
+def _load_guardrails() -> dict[str, Any]:
+    if GUARDRAILS_PATH.exists():
+        return json.loads(GUARDRAILS_PATH.read_text(encoding="utf-8"))
+    return dict(_DEFAULT_GUARDRAILS)
+
+
+def _save_guardrails(data: dict[str, Any]) -> None:
+    GUARDRAILS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    GUARDRAILS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@router.get("/guardrails")
+async def get_guardrails(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """가드레일 설정 조회."""
+    require_admin(user_id, iam)
+    return _load_guardrails()
+
+
+@router.put("/guardrails")
+async def update_guardrails(
+    config: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """가드레일 설정 전체 업데이트."""
+    require_admin(user_id, iam)
+    current = _load_guardrails()
+    current.update(config)
+    _save_guardrails(current)
+
+    # prompt_guard 모듈에 실시간 반영
+    _apply_guardrails_to_runtime(current)
+
+    return {"status": "updated", "config": current}
+
+
+@router.patch("/guardrails/{section}")
+async def update_guardrail_section(
+    section: str,
+    config: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """가드레일 특정 섹션만 업데이트."""
+    require_admin(user_id, iam)
+    current = _load_guardrails()
+    if section not in current and section != "custom_rules":
+        raise HTTPException(404, f"Unknown guardrail section: {section}")
+    if section == "custom_rules":
+        current["custom_rules"] = config.get("rules", [])
+    else:
+        current[section].update(config)
+    _save_guardrails(current)
+    _apply_guardrails_to_runtime(current)
+    return {"status": "updated", "section": section}
+
+
+@router.post("/guardrails/reset")
+async def reset_guardrails(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """가드레일 설정을 기본값으로 초기화."""
+    require_admin(user_id, iam)
+    _save_guardrails(dict(_DEFAULT_GUARDRAILS))
+    _apply_guardrails_to_runtime(_DEFAULT_GUARDRAILS)
+    return {"status": "reset", "config": _DEFAULT_GUARDRAILS}
+
+
+@router.post("/guardrails/test")
+async def test_guardrail(
+    body: dict[str, Any],
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """입력 텍스트에 대해 가드레일 검사 테스트."""
+    require_admin(user_id, iam)
+    text = body.get("text", "")
+
+    from backend.security.prompt_guard import score_injection_risk, detect_injection
+
+    risk_score = score_injection_risk(text)
+    has_injection = detect_injection(text)
+    guardrails = _load_guardrails()
+    threshold = guardrails.get("prompt_injection", {}).get("risk_threshold", 0.7)
+
+    # 주제 제한 검사
+    blocked_topics = guardrails.get("topic_restrictions", {}).get("blocked_topics", [])
+    matched_topics = [t for t in blocked_topics if t in text]
+
+    return {
+        "text_length": len(text),
+        "risk_score": risk_score,
+        "threshold": threshold,
+        "blocked": risk_score >= threshold or has_injection,
+        "injection_detected": has_injection,
+        "matched_blocked_topics": matched_topics,
+    }
+
+
+def _apply_guardrails_to_runtime(config: dict[str, Any]) -> None:
+    """가드레일 설정을 런타임 모듈에 반영."""
+    try:
+        from backend.security import prompt_guard
+        pi = config.get("prompt_injection", {})
+        if "risk_threshold" in pi:
+            prompt_guard.INJECTION_RISK_THRESHOLD = pi["risk_threshold"]
+        if "max_input_length" in pi:
+            prompt_guard.MAX_INPUT_LENGTH = pi["max_input_length"]
+    except Exception:
+        logger.debug("Failed to apply guardrails to runtime", exc_info=True)
+
+
 # ─── 거버넌스/컴플라이언스 ────────────────────────────────────────────────────
 
 @router.get("/governance")

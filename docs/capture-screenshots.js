@@ -30,8 +30,9 @@ const PAGES = [
   { name: 'admin-departments', path: '/admin', wait: 2000, clickTab: 2 },
   { name: 'admin-model', path: '/admin', wait: 2000, clickTab: 3 },
   { name: 'admin-metrics', path: '/admin', wait: 2000, clickTab: 4 },
-  { name: 'admin-governance', path: '/admin', wait: 2000, clickTab: 5 },
-  { name: 'admin-infra', path: '/admin', wait: 2000, clickTab: 6 },
+  { name: 'admin-guardrails', path: '/admin', wait: 2000, clickTab: 5 },
+  { name: 'admin-governance', path: '/admin', wait: 2000, clickTab: 6 },
+  { name: 'admin-infra', path: '/admin', wait: 2000, clickTab: 7 },
 ];
 
 (async () => {

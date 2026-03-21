@@ -67,25 +67,11 @@ def get_collection(name: str = "vault_docs") -> chromadb.Collection:
 # ---------------------------------------------------------------------------
 
 def _derive_allowed_roles(rel_path: str, iam_path: Path) -> list[str]:
-    """Determine which roles have read access to *rel_path* via iam.yaml.
-
-    Reads the IAM file fresh each call so that policy changes are reflected
-    without a server restart.  Uses :func:`fnmatch` glob matching consistent
-    with :class:`~backend.core.iam.IAMEngine`.
-
-    Args:
-        rel_path: Vault-relative path of the document, e.g.
-            ``/Projects/foo.md``.
-        iam_path: Absolute path to the ``iam.yaml`` policy file.
-
-    Returns:
-        Sorted list of role names that can read *rel_path*.  Empty list if
-        *iam_path* does not exist or no roles match.
-    """
+    """Determine which roles have read access to *rel_path* via iam.yaml."""
     if not iam_path.exists():
         return []
 
-    import yaml  # local import – yaml is a dev dep, keep import costs low
+    import yaml
 
     with open(iam_path, encoding="utf-8") as fh:
         data: dict[str, Any] = yaml.safe_load(fh) or {}
@@ -99,6 +85,23 @@ def _derive_allowed_roles(rel_path: str, iam_path: Path) -> list[str]:
             matched.append(role_name)
 
     return sorted(matched)
+
+
+def _derive_allowed_departments(rel_path: str, iam_path: Path) -> list[str]:
+    """Shared/{dept_id}/ 경로에서 부서 ID를 추출하여 반환."""
+    if not iam_path.exists():
+        return []
+
+    import yaml
+
+    with open(iam_path, encoding="utf-8") as fh:
+        data: dict[str, Any] = yaml.safe_load(fh) or {}
+
+    departments = data.get("departments", {})
+    parts = rel_path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "Shared" and parts[1] in departments:
+        return [parts[1]]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +162,18 @@ async def index_document(
         allowed_roles = await asyncio.to_thread( _derive_allowed_roles, rel_path, iam_path
         )
 
+    # Derive allowed_departments from folder structure
+    raw_depts: Any = meta.get("allowed_departments")
+    if raw_depts is not None:
+        if isinstance(raw_depts, list):
+            allowed_departments: list[str] = [str(d) for d in raw_depts]
+        else:
+            allowed_departments = [s.strip() for s in str(raw_depts).split(",") if s.strip()]
+    else:
+        allowed_departments = await asyncio.to_thread(
+            _derive_allowed_departments, rel_path, iam_path
+        )
+
     # Normalise tags to a list[str]
     if isinstance(raw_tags, list):
         tags: list[str] = [str(t) for t in raw_tags]
@@ -182,6 +197,7 @@ async def index_document(
     metadatas: list[dict[str, Any]] = []
 
     roles_str = ",".join(allowed_roles)
+    depts_str = ",".join(allowed_departments)
     tags_str = ",".join(tags)
 
     for i, chunk in enumerate(chunks):
@@ -191,6 +207,7 @@ async def index_document(
         metadatas.append({
             "owner": owner,
             "allowed_roles": roles_str,
+            "allowed_departments": depts_str,
             "source_path": rel_path,
             "heading": chunk.heading,
             "tags": tags_str,

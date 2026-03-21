@@ -3,6 +3,9 @@
 # Configuration as Code (RBAC + Ownership)
 # ──────────────────────────────────────
 
+# 부서 정의
+# Shared/{dept_id}/ 폴더는 해당 부서 소속 사용자 + admin만 접근 가능
+# Shared/ 루트의 파일은 모든 역할이 접근 가능 (기존과 동일)
 departments:
   life_insurance:
     name: "생명보험사업부"
