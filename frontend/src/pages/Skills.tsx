@@ -133,6 +133,10 @@ export default function Skills() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [marketplace, setMarketplace] = useState<(Skill & { installed: boolean })[]>([])
   const [loading, setLoading] = useState(false)
+  const [editSkill, setEditSkill] = useState<Skill | null>(null)
+
+  // 노코드 에디터 상태
+  const [editParams, setEditParams] = useState<Array<{ name: string; type: string; description: string; required: boolean }>>([])
 
   // Create form
   const [formName, setFormName] = useState('')
@@ -194,6 +198,41 @@ export default function Skills() {
     fetchMarketplace()
   }
 
+  function openEditor(skill: Skill) {
+    setEditSkill({ ...skill })
+    const params = Object.entries(skill.params || {}).map(([name, v]: [string, any]) => ({
+      name,
+      type: v.type || 'string',
+      description: v.description || '',
+      required: v.required ?? false,
+    }))
+    setEditParams(params)
+  }
+
+  async function handleUpdate() {
+    if (!editSkill) return
+    const params: Record<string, any> = {}
+    for (const p of editParams) {
+      if (p.name.trim()) {
+        params[p.name.trim()] = { type: p.type, description: p.description, required: p.required }
+      }
+    }
+    await api(`/api/v1/skills/update/${editSkill.skill_name}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        description: editSkill.description,
+        endpoint: editSkill.endpoint,
+        method: editSkill.method,
+        category: editSkill.category,
+        params,
+        body: editSkill.body || '',
+      }),
+    })
+    toast.success('스킬 수정', editSkill.skill_name)
+    setEditSkill(null)
+    fetchSkills()
+  }
+
   async function handleInstall(name: string) {
     await api(`/api/v1/skills/marketplace/install/${name}`, { method: 'POST' })
     toast.success('스킬 설치', name)
@@ -244,7 +283,7 @@ export default function Skills() {
           ) : (
             <AnimatePresence>
               {skills.map((s) => (
-                <SkillCard key={s.skill_name} skill={s} onDelete={() => handleDelete(s.skill_name)} />
+                <SkillCard key={s.skill_name} skill={s} onEdit={() => openEditor(s)} onDelete={() => handleDelete(s.skill_name)} />
               ))}
             </AnimatePresence>
           )}
@@ -314,6 +353,103 @@ export default function Skills() {
               <MarketplaceCard key={s.skill_name} skill={s} onInstall={() => handleInstall(s.skill_name)} />
             ))}
           </AnimatePresence>
+        </div>
+      )}
+
+      {/* 노코드 스킬 에디터 모달 */}
+      {editSkill && (
+        <div className="modal-overlay" onClick={() => setEditSkill(null)}>
+          <div className="modal-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-surface-900">스킬 편집: {editSkill.skill_name}</h3>
+              <button onClick={() => setEditSkill(null)} className="text-surface-600 hover:text-surface-900">&times;</button>
+            </div>
+
+            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+              {/* 설명 */}
+              <div>
+                <label className="text-2xs text-surface-600">설명</label>
+                <input value={editSkill.description} onChange={e => setEditSkill({ ...editSkill, description: e.target.value })}
+                  className="input-field w-full mt-1 text-xs" />
+              </div>
+
+              {/* 엔드포인트 + 메서드 */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="col-span-3">
+                  <label className="text-2xs text-surface-600">엔드포인트</label>
+                  <input value={editSkill.endpoint} onChange={e => setEditSkill({ ...editSkill, endpoint: e.target.value })}
+                    className="input-field w-full mt-1 font-mono text-xs" />
+                </div>
+                <div>
+                  <label className="text-2xs text-surface-600">메서드</label>
+                  <select value={editSkill.method} onChange={e => setEditSkill({ ...editSkill, method: e.target.value })}
+                    className="input-field w-full mt-1 text-xs">
+                    <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 카테고리 */}
+              <div>
+                <label className="text-2xs text-surface-600">카테고리</label>
+                <select value={editSkill.category} onChange={e => setEditSkill({ ...editSkill, category: e.target.value })}
+                  className="input-field w-full mt-1 text-xs">
+                  <option value="custom">커스텀</option>
+                  <option value="search">검색</option>
+                  <option value="analysis">분석</option>
+                  <option value="report">리포트</option>
+                </select>
+              </div>
+
+              {/* 파라미터 (노코드 에디터) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-2xs text-surface-600">파라미터</label>
+                  <button onClick={() => setEditParams([...editParams, { name: '', type: 'string', description: '', required: false }])}
+                    className="btn-secondary text-2xs flex items-center gap-1"><Plus size={10} /> 추가</button>
+                </div>
+                <div className="space-y-2">
+                  {editParams.map((p, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-1.5 items-center p-2 rounded" style={{ background: 'var(--color-bg-primary)' }}>
+                      <input value={p.name} onChange={e => { const c = [...editParams]; c[i].name = e.target.value; setEditParams(c) }}
+                        placeholder="이름" className="input-field text-2xs font-mono col-span-3" />
+                      <select value={p.type} onChange={e => { const c = [...editParams]; c[i].type = e.target.value; setEditParams(c) }}
+                        className="input-field text-2xs col-span-2">
+                        <option value="string">string</option>
+                        <option value="integer">integer</option>
+                        <option value="number">number</option>
+                        <option value="boolean">boolean</option>
+                        <option value="array">array</option>
+                        <option value="object">object</option>
+                      </select>
+                      <input value={p.description} onChange={e => { const c = [...editParams]; c[i].description = e.target.value; setEditParams(c) }}
+                        placeholder="설명" className="input-field text-2xs col-span-4" />
+                      <label className="col-span-2 flex items-center gap-1 text-2xs text-surface-600 cursor-pointer">
+                        <input type="checkbox" checked={p.required} onChange={e => { const c = [...editParams]; c[i].required = e.target.checked; setEditParams(c) }}
+                          className="accent-gold-500" /> 필수
+                      </label>
+                      <button onClick={() => setEditParams(editParams.filter((_, j) => j !== i))}
+                        className="col-span-1 text-surface-600 hover:text-status-error"><Trash2 size={11} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 본문 */}
+              <div>
+                <label className="text-2xs text-surface-600">본문 설명</label>
+                <textarea value={editSkill.body || ''} onChange={e => setEditSkill({ ...editSkill, body: e.target.value })}
+                  rows={3} className="input-field w-full mt-1 text-xs resize-none" />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setEditSkill(null)} className="btn-secondary flex-1 text-xs">취소</button>
+              <button onClick={handleUpdate} className="btn-primary flex-1 text-xs flex items-center justify-center gap-1">
+                <Check size={12} /> 저장
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

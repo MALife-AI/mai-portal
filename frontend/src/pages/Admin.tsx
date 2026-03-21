@@ -289,6 +289,10 @@ function ModelTab() {
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [url, setUrl] = useState('')
+  // Smart Routing
+  const [smartRouting, setSmartRouting] = useState(false)
+  const [lightUrl, setLightUrl] = useState('')
+  const [heavyUrl, setHeavyUrl] = useState('')
   // GPU 서버 추가 폼
   const [newSrv, setNewSrv] = useState<{ id: string; name: string; url: string; model: string; description: string }>({
     id: '', name: '', url: '', model: 'qwen3.5-4b', description: '',
@@ -303,6 +307,9 @@ function ModelTab() {
     setProvider(d.config?.vlm_provider || '')
     setModel(d.config?.vlm_model || '')
     setUrl(d.config?.llama_server_url || '')
+    setSmartRouting(d.config?.smart_routing || false)
+    setLightUrl(d.config?.llama_server_light || '')
+    setHeavyUrl(d.config?.llama_server_heavy || '')
   }, [])
 
   useEffect(() => { fetchConfig() }, [fetchConfig])
@@ -310,7 +317,14 @@ function ModelTab() {
   async function handleSave() {
     await api('/api/v1/admin/model-config', {
       method: 'PUT',
-      body: JSON.stringify({ vlm_provider: provider, vlm_model: model, llama_server_url: url }),
+      body: JSON.stringify({
+        vlm_provider: provider,
+        vlm_model: model,
+        llama_server_url: url,
+        smart_routing: smartRouting,
+        llama_server_light: lightUrl,
+        llama_server_heavy: heavyUrl,
+      }),
     })
     toast.success('모델 설정 저장', '서버 재시작 후 적용됩니다')
   }
@@ -359,6 +373,70 @@ function ModelTab() {
               <input value={url} onChange={e => setUrl(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
             </div>
           </div>
+          <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
+        </div>
+      </div>
+
+      {/* 모델 매핑 (Smart Routing) */}
+      <div>
+        <p className="text-sm font-semibold text-surface-900 mb-3">모델 매핑 (Smart Routing)</p>
+        <div className="panel p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-surface-800 font-semibold">질문 복잡도 기반 자동 라우팅</p>
+              <p className="text-2xs text-surface-600">간단한 질문은 빠른 모델, 복잡한 질문은 사고 모델로 자동 분배합니다</p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={smartRouting} onChange={e => setSmartRouting(e.target.checked)} className="accent-gold-500" />
+              <span className="text-xs text-surface-700">{smartRouting ? '활성' : '비활성'}</span>
+            </label>
+          </div>
+
+          {smartRouting && (
+            <div className="grid grid-cols-2 gap-4 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Gauge size={14} className="text-status-success" />
+                  <span className="text-xs font-semibold text-surface-800">간단 모드 (Fast)</span>
+                </div>
+                <p className="text-2xs text-surface-600">인사, 단순 조회, 짧은 질문 (50자 미만)</p>
+                <div>
+                  <label className="text-2xs text-surface-600">서버 URL</label>
+                  <select value={lightUrl} onChange={e => setLightUrl(e.target.value)} className="input-field w-full mt-1 text-xs">
+                    <option value="">기본 서버 사용</option>
+                    {gpuServers.map(s => <option key={s.id} value={s.url}>{s.name} ({s.model})</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Cpu size={14} className="text-gold-500" />
+                  <span className="text-xs font-semibold text-surface-800">사고 모드 (Think)</span>
+                </div>
+                <p className="text-2xs text-surface-600">분석, 비교, 요약, 추론 등 복잡한 질문</p>
+                <div>
+                  <label className="text-2xs text-surface-600">서버 URL</label>
+                  <select value={heavyUrl} onChange={e => setHeavyUrl(e.target.value)} className="input-field w-full mt-1 text-xs">
+                    <option value="">기본 서버 사용 (라우팅 안 함)</option>
+                    {gpuServers.map(s => <option key={s.id} value={s.url}>{s.name} ({s.model})</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {smartRouting && (
+            <div className="rounded p-3 text-2xs" style={{ background: 'var(--color-bg-primary)' }}>
+              <p className="text-surface-600 mb-1">라우팅 기준 키워드:</p>
+              <div className="flex flex-wrap gap-1">
+                {['분석', '비교', '왜', '어떻게', '차이', '요약', '정리', '계산', '추론', 'think'].map(kw => (
+                  <span key={kw} className="tag tag-gold">{kw}</span>
+                ))}
+              </div>
+              <p className="text-surface-600 mt-2">위 키워드가 포함되거나, 질문이 100자 이상이면 사고 모드로 라우팅됩니다.</p>
+            </div>
+          )}
+
           <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
         </div>
       </div>

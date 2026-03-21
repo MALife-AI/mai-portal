@@ -167,6 +167,9 @@ class ModelConfig(BaseModel):
     llama_server_url: str = Field("http://localhost:8801/v1")
     temperature: float = Field(0.7)
     max_tokens: int = Field(1024)
+    smart_routing: bool = Field(False)
+    llama_server_light: str = Field("")
+    llama_server_heavy: str = Field("")
 
 
 class GPUServerConfig(BaseModel):
@@ -254,6 +257,9 @@ async def get_model_config(
         "llama_server_url": getattr(settings, "llama_server_url", "http://localhost:8801/v1"),
         "claude_wrapper_url": settings.claude_wrapper_url,
         "ollama_base_url": settings.ollama_base_url,
+        "smart_routing": getattr(settings, "smart_routing", False),
+        "llama_server_light": getattr(settings, "llama_server_light", ""),
+        "llama_server_heavy": getattr(settings, "llama_server_heavy", ""),
     }
     available_models = []
     try:
@@ -287,6 +293,9 @@ async def update_model_config(
         "VLM_PROVIDER": body.vlm_provider,
         "VLM_MODEL": body.vlm_model,
         "LLAMA_SERVER_URL": body.llama_server_url,
+        "SMART_ROUTING": str(body.smart_routing).lower(),
+        "LLAMA_SERVER_LIGHT": body.llama_server_light,
+        "LLAMA_SERVER_HEAVY": body.llama_server_heavy,
     }
     new_lines = []
     updated_keys = set()
