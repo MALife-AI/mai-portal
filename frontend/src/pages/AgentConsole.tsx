@@ -15,6 +15,7 @@ import {
   Brain,
   Terminal,
   MessageSquare,
+  RefreshCw,
 } from 'lucide-react'
 import { agentApi, type ExecutionStep, type StreamCallbacks } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
@@ -379,6 +380,10 @@ function ThreadItem({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+interface ServerInfo { id: string; name: string; model: string; url: string; description: string; online: boolean; signal: string; label: string; load_pct: number }
+
+const SIGNAL_COLORS: Record<string, string> = { green: '#34C759', yellow: '#F5A623', red: '#FF3B30' }
+
 export default function AgentConsole() {
   const toast = useToast()
   const {
@@ -399,25 +404,27 @@ export default function AgentConsole() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // 추론 서버 상태 + 모델 선택
-  interface ServerInfo { id: string; name: string; model: string; url: string; description: string; online: boolean; signal: string; label: string; load_pct: number }
   const [servers, setServers] = useState<ServerInfo[]>([])
   const [selectedServer, setSelectedServer] = useState<string>('local')
+  const [loadingStatus, setLoadingStatus] = useState(false)
+  // Derived: avoid servers.find() on every render/send
+  const selectedServerInfo = servers.find(s => s.id === selectedServer)
 
-  useEffect(() => {
-    async function fetchStatus() {
-      try {
-        const uid = localStorage.getItem('malife_user_id') || 'admin01'
-        const r = await fetch('/api/v1/admin/inference-status', { headers: { 'X-User-Id': uid } })
-        if (r.ok) {
-          const d = await r.json()
-          setServers(d.servers || [])
-        }
-      } catch { /* ignore */ }
-    }
-    fetchStatus()
-    const interval = setInterval(fetchStatus, 15000) // 15초마다 갱신
-    return () => clearInterval(interval)
+  const fetchServerStatus = useCallback(async () => {
+    setLoadingStatus(true)
+    try {
+      const uid = localStorage.getItem('malife_user_id') || 'admin01'
+      const r = await fetch('/api/v1/admin/inference-status', { headers: { 'X-User-Id': uid } })
+      if (r.ok) {
+        const d = await r.json()
+        setServers(d.servers || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingStatus(false)
   }, [])
+
+  // 최초 1회만 조회
+  useEffect(() => { fetchServerStatus() }, [fetchServerStatus])
 
   const activeThread = getActiveThread()
   const lastAgentMessage = activeThread?.messages.slice().reverse().find((m: AgentMessage) => m.role === 'agent')
@@ -473,7 +480,7 @@ export default function AgentConsole() {
 
     const tid = threadId // capture for callbacks
     await agentApi.stream(
-      { query: trimmedQuery, thread_id: threadId },
+      { query: trimmedQuery, thread_id: threadId, server_url: selectedServerInfo?.url },
       {
         onMetadata: (meta) => {
           updateMessageInThread(tid, agentMsgId, (msg) => ({
@@ -674,9 +681,59 @@ export default function AgentConsole() {
 
             {/* Input area */}
             <div
-              className="px-5 py-4 shrink-0"
+              className="px-5 py-3 shrink-0 space-y-2"
               style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
             >
+              {/* Model selector + traffic lights */}
+              {servers.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={fetchServerStatus}
+                    disabled={loadingStatus}
+                    className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors shrink-0"
+                    title="서버 상태 새로고침"
+                  >
+                    {loadingStatus ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  </button>
+                  {servers.map((srv) => {
+                    const signalColor = SIGNAL_COLORS[srv.signal] ?? SIGNAL_COLORS.red
+                    const isSelected = selectedServer === srv.id
+                    return (
+                      <button
+                        key={srv.id}
+                        onClick={() => setSelectedServer(srv.id)}
+                        className={cn(
+                          'flex items-center gap-2 px-3 py-1.5 rounded-md text-2xs font-mono transition-all',
+                          isSelected
+                            ? 'ring-1 ring-gold-500/50'
+                            : 'opacity-60 hover:opacity-100',
+                        )}
+                        style={{
+                          background: isSelected ? 'var(--color-bg-elevated)' : 'transparent',
+                          border: `1px solid ${isSelected ? 'var(--color-gold)' : 'var(--color-border)'}`,
+                        }}
+                        title={`${srv.description} — ${srv.label} (${srv.load_pct}%)`}
+                      >
+                        {/* Traffic light */}
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{
+                            background: signalColor,
+                            boxShadow: srv.online ? `0 0 6px ${signalColor}66` : 'none',
+                          }}
+                        />
+                        <span className={cn('font-semibold', isSelected ? 'text-surface-900' : 'text-surface-600')}>
+                          {srv.name}
+                        </span>
+                        <span style={{ color: signalColor, fontSize: '9px' }}>
+                          {srv.label}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
               <div
                 className="flex items-end gap-3 rounded-lg p-3"
                 style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
@@ -714,7 +771,7 @@ export default function AgentConsole() {
                   )}
                 </button>
               </div>
-              <p className="text-2xs text-surface-600 mt-2 text-center font-mono">
+              <p className="text-2xs text-surface-600 text-center font-mono">
                 Enter 전송 · Shift+Enter 줄바꿈 · 대화 ID: {activeThreadId?.slice(-8) ?? '—'}
               </p>
             </div>

@@ -4,8 +4,9 @@ import {
   Shield, ShieldOff, Users, Activity, Settings2, FileText,
   Server, Eye, CheckCircle2, XCircle, AlertTriangle,
   Loader2, RefreshCw, Save, Cpu, HardDrive, Gauge,
+  Building2, Plus, Trash2, Edit3,
 } from 'lucide-react'
-import { adminApi, type IamConfig, type KillSwitchStatus } from '@/api/client'
+import { adminApi, getUserId, type IamConfig, type KillSwitchStatus } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { cn } from '@/lib/utils'
 import {
@@ -14,20 +15,60 @@ import {
 } from 'recharts'
 
 const API = ''
-function uid() { try { return localStorage.getItem('malife_user_id') ?? 'admin01' } catch { return 'admin01' } }
 async function api(path: string, opts: RequestInit = {}) {
-  const r = await fetch(`${API}${path}`, { ...opts, headers: { 'X-User-Id': uid(), 'Content-Type': 'application/json', ...opts.headers } })
+  const r = await fetch(`${API}${path}`, { ...opts, headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json', ...opts.headers } })
   return r.json()
 }
 
-type Tab = 'overview' | 'iam' | 'model' | 'metrics' | 'governance' | 'infra'
+interface ChecklistItem { item: string; status: boolean; detail?: string }
+interface ViolationItem { user_id: string; skill_name?: string; action?: string; started_at?: string }
+interface ServiceItem { name: string; status: string; port?: number }
+interface MemoryInfo { used_gb: number; total_gb: number; percent: number }
+
+interface MetricsData {
+  total_queries: number
+  vault_files: number
+  vault_size_mb: number
+  graph_stats?: { node_count: number }
+  error_rate: number
+  daily_counts: Record<string, number>
+  user_counts: Record<string, number>
+  skill_counts: Record<string, number>
+}
+
+interface GovernanceData {
+  permission_violations: number
+  injection_attempts: number
+  private_documents: number
+  checklist?: ChecklistItem[]
+  recent_violations?: ViolationItem[]
+}
+
+interface GPUServer {
+  id: string
+  name: string
+  url: string
+  model: string
+  description?: string
+}
+
+interface InfraData {
+  cpu_percent: number
+  processor: string
+  memory?: MemoryInfo
+  disk_free_gb: number
+  gpu: string
+  services?: ServiceItem[]
+}
+
+type Tab = 'overview' | 'iam' | 'departments' | 'model' | 'metrics' | 'governance' | 'infra'
 
 // ─── Overview ────────────────────────────────────────────────────────────────
 
 function OverviewTab() {
   const [ks, setKs] = useState<KillSwitchStatus | null>(null)
-  const [metrics, setMetrics] = useState<any>(null)
-  const [governance, setGovernance] = useState<any>(null)
+  const [metrics, setMetrics] = useState<MetricsData | null>(null)
+  const [governance, setGovernance] = useState<GovernanceData | null>(null)
   const toast = useToast()
 
   useEffect(() => {
@@ -105,9 +146,9 @@ function OverviewTab() {
 // ─── IAM ─────────────────────────────────────────────────────────────────────
 
 function IamTab() {
-  const [users, setUsers] = useState<any[]>([])
-  const [catalog, setCatalog] = useState<Record<string, any[]>>({})
-  const [templates, setTemplates] = useState<any[]>([])
+  const [users, setUsers] = useState<{ user_id: string; display_name: string; permissions: string[] }[]>([])
+  const [catalog, setCatalog] = useState<Record<string, { id: string; label: string; description: string }[]>>({})
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string; permissions: string[] }[]>([])
   const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const [userPerms, setUserPerms] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -233,22 +274,29 @@ function IamTab() {
 // ─── Model Config ────────────────────────────────────────────────────────────
 
 function ModelTab() {
-  const [config, setConfig] = useState<any>(null)
-  const [models, setModels] = useState<any[]>([])
+  const [config, setConfig] = useState<Record<string, unknown> | null>(null)
+  const [models, setModels] = useState<{ name: string; source: string; size: string }[]>([])
+  const [gpuServers, setGpuServers] = useState<GPUServer[]>([])
   const [provider, setProvider] = useState('')
   const [model, setModel] = useState('')
   const [url, setUrl] = useState('')
+  // GPU 서버 추가 폼
+  const [newSrv, setNewSrv] = useState<{ id: string; name: string; url: string; model: string; description: string }>({
+    id: '', name: '', url: '', model: 'qwen3.5-4b', description: '',
+  })
   const toast = useToast()
 
-  useEffect(() => {
-    api('/api/v1/admin/model-config').then(d => {
-      setConfig(d.config)
-      setModels(d.available_models || [])
-      setProvider(d.config?.vlm_provider || '')
-      setModel(d.config?.vlm_model || '')
-      setUrl(d.config?.llama_server_url || '')
-    })
+  const fetchConfig = useCallback(async () => {
+    const d = await api('/api/v1/admin/model-config')
+    setConfig(d.config)
+    setModels(d.available_models || [])
+    setGpuServers(d.gpu_servers || [])
+    setProvider(d.config?.vlm_provider || '')
+    setModel(d.config?.vlm_model || '')
+    setUrl(d.config?.llama_server_url || '')
   }, [])
+
+  useEffect(() => { fetchConfig() }, [fetchConfig])
 
   async function handleSave() {
     await api('/api/v1/admin/model-config', {
@@ -258,41 +306,123 @@ function ModelTab() {
     toast.success('모델 설정 저장', '서버 재시작 후 적용됩니다')
   }
 
+  async function addServer() {
+    if (!newSrv.id || !newSrv.name || !newSrv.url) { toast.error('필수 항목 누락', ''); return }
+    await api('/api/v1/admin/gpu-servers', {
+      method: 'POST',
+      body: JSON.stringify(newSrv),
+    })
+    toast.success('GPU 서버 추가', newSrv.name)
+    setNewSrv({ id: '', name: '', url: '', model: 'qwen3.5-4b', description: '' })
+    // Optimistic update: append without a round-trip fetch
+    setGpuServers(prev => [...prev, newSrv])
+  }
+
+  async function removeServer(id: string) {
+    await api(`/api/v1/admin/gpu-servers/${id}`, { method: 'DELETE' })
+    toast.success('GPU 서버 삭제', id)
+    // Optimistic update: filter out without a round-trip fetch
+    setGpuServers(prev => prev.filter(s => s.id !== id))
+  }
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm font-semibold text-surface-900">LLM 모델 설정</p>
-      <div className="panel p-4 space-y-4">
-        <div>
-          <label className="text-2xs font-mono text-surface-600 uppercase">Provider</label>
-          <select value={provider} onChange={e => setProvider(e.target.value)} className="input-field w-full mt-1 text-xs">
-            <option value="llama_server">llama-server (Unsloth GGUF)</option>
-            <option value="ollama">Ollama</option>
-            <option value="claude_wrapper">Claude Wrapper</option>
-            <option value="openai">OpenAI</option>
-          </select>
+    <div className="space-y-6">
+      {/* 기본 모델 설정 */}
+      <div>
+        <p className="text-sm font-semibold text-surface-900 mb-3">기본 LLM 설정</p>
+        <div className="panel p-4 space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">Provider</label>
+              <select value={provider} onChange={e => setProvider(e.target.value)} className="input-field w-full mt-1 text-xs">
+                <option value="llama_server">llama-server (Unsloth GGUF)</option>
+                <option value="ollama">Ollama</option>
+                <option value="claude_wrapper">Claude Wrapper</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">모델</label>
+              <input value={model} onChange={e => setModel(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">기본 서버 URL</label>
+              <input value={url} onChange={e => setUrl(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
+            </div>
+          </div>
+          <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
         </div>
-        <div>
-          <label className="text-2xs font-mono text-surface-600 uppercase">모델</label>
-          <input value={model} onChange={e => setModel(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
-        </div>
-        <div>
-          <label className="text-2xs font-mono text-surface-600 uppercase">서버 URL</label>
-          <input value={url} onChange={e => setUrl(e.target.value)} className="input-field w-full mt-1 font-mono text-xs" />
-        </div>
-        <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
       </div>
 
-      <p className="text-xs font-semibold text-surface-800 mt-4">사용 가능한 모델</p>
-      <div className="space-y-1">
-        {models.map((m: any, i: number) => (
-          <div key={i} className="panel p-3 flex items-center justify-between cursor-pointer hover:border-gold-500/30" onClick={() => setModel(m.name)}>
-            <div>
-              <span className="text-xs font-mono font-semibold text-surface-900">{m.name}</span>
-              <span className="text-2xs text-surface-600 ml-2">{m.source}</span>
+      {/* GPU 서버 관리 */}
+      <div>
+        <p className="text-sm font-semibold text-surface-900 mb-3">GPU 추론 서버</p>
+        <div className="space-y-2 mb-4">
+          {gpuServers.map((srv: any) => (
+            <div key={srv.id} className="panel p-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Server size={14} className="text-gold-500 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-surface-900">{srv.name} <span className="text-2xs font-mono text-surface-600">({srv.id})</span></p>
+                  <p className="text-2xs font-mono text-surface-600">{srv.url}</p>
+                  {srv.description && <p className="text-2xs text-surface-600">{srv.description}</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="tag tag-gold text-2xs">{srv.model}</span>
+                {srv.id !== 'local' && (
+                  <button onClick={() => removeServer(srv.id)} className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-status-error hover:bg-surface-200">
+                    <XCircle size={13} />
+                  </button>
+                )}
+              </div>
             </div>
-            <span className="text-2xs font-mono text-surface-600">{m.size}</span>
+          ))}
+        </div>
+
+        {/* 서버 추가 폼 */}
+        <div className="panel p-4">
+          <p className="text-xs font-semibold text-surface-800 mb-3">서버 추가</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">서버 ID</label>
+              <input value={newSrv.id} onChange={e => setNewSrv(prev => ({ ...prev, id: e.target.value }))} placeholder="gpu-a100" className="input-field w-full mt-1 font-mono text-xs" />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">표시 이름</label>
+              <input value={newSrv.name} onChange={e => setNewSrv(prev => ({ ...prev, name: e.target.value }))} placeholder="A100 GPU 9B" className="input-field w-full mt-1 text-xs" />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">URL</label>
+              <input value={newSrv.url} onChange={e => setNewSrv(prev => ({ ...prev, url: e.target.value }))} placeholder="http://gpu-server:8801/v1" className="input-field w-full mt-1 font-mono text-xs" />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">모델</label>
+              <input value={newSrv.model} onChange={e => setNewSrv(prev => ({ ...prev, model: e.target.value }))} placeholder="qwen3.5-9b" className="input-field w-full mt-1 font-mono text-xs" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-2xs font-mono text-surface-600 uppercase">설명</label>
+              <input value={newSrv.description} onChange={e => setNewSrv(prev => ({ ...prev, description: e.target.value }))} placeholder="A100 80GB, 데이터센터" className="input-field w-full mt-1 text-xs" />
+            </div>
           </div>
-        ))}
+          <button onClick={addServer} className="btn-primary text-xs flex items-center gap-1 mt-3"><Server size={12} /> 서버 추가</button>
+        </div>
+      </div>
+
+      {/* 사용 가능한 모델 */}
+      <div>
+        <p className="text-xs font-semibold text-surface-800 mb-2">사용 가능한 모델</p>
+        <div className="space-y-1">
+          {models.map((m, i) => (
+            <div key={i} className="panel p-3 flex items-center justify-between cursor-pointer hover:border-gold-500/30" onClick={() => setModel(m.name)}>
+              <div>
+                <span className="text-xs font-mono font-semibold text-surface-900">{m.name}</span>
+                <span className="text-2xs text-surface-600 ml-2">{m.source}</span>
+              </div>
+              <span className="text-2xs font-mono text-surface-600">{m.size}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -301,7 +431,7 @@ function ModelTab() {
 // ─── Metrics ─────────────────────────────────────────────────────────────────
 
 function MetricsTab() {
-  const [metrics, setMetrics] = useState<any>(null)
+  const [metrics, setMetrics] = useState<MetricsData | null>(null)
 
   useEffect(() => { api('/api/v1/admin/metrics').then(setMetrics) }, [])
 
@@ -369,7 +499,7 @@ function MetricsTab() {
 // ─── Governance ──────────────────────────────────────────────────────────────
 
 function GovernanceTab() {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<GovernanceData | null>(null)
 
   useEffect(() => { api('/api/v1/admin/governance').then(setData) }, [])
 
@@ -440,8 +570,145 @@ function GovernanceTab() {
 
 // ─── Infra ───────────────────────────────────────────────────────────────────
 
+// ─── Departments ─────────────────────────────────────────────────────────────
+
+function DepartmentsTab() {
+  const [departments, setDepartments] = useState<{ id: string; name: string; description: string }[]>([])
+  const [editId, setEditId] = useState<string | null>(null)
+  const [formId, setFormId] = useState('')
+  const [formName, setFormName] = useState('')
+  const [formDesc, setFormDesc] = useState('')
+  const [isNew, setIsNew] = useState(false)
+  const toast = useToast()
+
+  const fetchDepts = useCallback(async () => {
+    const d = await api('/api/v1/admin/departments')
+    setDepartments(d.departments || [])
+  }, [])
+
+  useEffect(() => { fetchDepts() }, [fetchDepts])
+
+  function startNew() {
+    setIsNew(true)
+    setEditId(null)
+    setFormId('')
+    setFormName('')
+    setFormDesc('')
+  }
+
+  function startEdit(dept: any) {
+    setIsNew(false)
+    setEditId(dept.id)
+    setFormId(dept.id)
+    setFormName(dept.name)
+    setFormDesc(dept.description)
+  }
+
+  function cancelEdit() {
+    setEditId(null)
+    setIsNew(false)
+  }
+
+  async function handleSave() {
+    if (!formId || !formName) { toast.error('필수 항목 누락', 'ID와 이름은 필수입니다'); return }
+    if (isNew) {
+      await api('/api/v1/admin/departments', {
+        method: 'POST',
+        body: JSON.stringify({ id: formId, name: formName, description: formDesc }),
+      })
+      toast.success('부서 추가', formName)
+    } else {
+      await api(`/api/v1/admin/departments/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ id: formId, name: formName, description: formDesc }),
+      })
+      toast.success('부서 수정', formName)
+    }
+    cancelEdit()
+    fetchDepts()
+  }
+
+  async function handleDelete(id: string) {
+    await api(`/api/v1/admin/departments/${id}`, { method: 'DELETE' })
+    toast.success('부서 삭제', id)
+    fetchDepts()
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-surface-900">소속 부서 관리</p>
+        <button onClick={startNew} className="btn-primary text-xs flex items-center gap-1"><Plus size={12} /> 부서 추가</button>
+      </div>
+
+      {/* 추가/수정 폼 */}
+      {(isNew || editId) && (
+        <div className="panel p-4 space-y-3">
+          <p className="text-xs font-semibold text-surface-800">{isNew ? '새 부서 추가' : '부서 수정'}</p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">부서 ID</label>
+              <input
+                value={formId}
+                onChange={e => setFormId(e.target.value)}
+                disabled={!isNew}
+                placeholder="sales_dept"
+                className="input-field w-full mt-1 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">부서명</label>
+              <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="영업부" className="input-field w-full mt-1 text-xs" />
+            </div>
+            <div>
+              <label className="text-2xs font-mono text-surface-600 uppercase">설명</label>
+              <input value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="영업 및 고객 관리" className="input-field w-full mt-1 text-xs" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="btn-primary text-xs flex items-center gap-1"><Save size={12} /> 저장</button>
+            <button onClick={cancelEdit} className="btn-secondary text-xs">취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 부서 목록 */}
+      <div className="space-y-2">
+        {departments.length === 0 ? (
+          <div className="text-center py-8 text-surface-600 text-sm">등록된 부서가 없습니다</div>
+        ) : (
+          departments.map(dept => (
+            <div key={dept.id} className="panel p-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Building2 size={14} className="text-gold-500 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-surface-900">{dept.name}</p>
+                  <p className="text-2xs text-surface-600">
+                    <span className="font-mono">{dept.id}</span>
+                    {dept.description && <> — {dept.description}</>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => startEdit(dept)} className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200">
+                  <Edit3 size={12} />
+                </button>
+                <button onClick={() => handleDelete(dept.id)} className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-status-error hover:bg-surface-200">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Infra ───────────────────────────────────────────────────────────────────
+
 function InfraTab() {
-  const [infra, setInfra] = useState<any>(null)
+  const [infra, setInfra] = useState<InfraData | null>(null)
 
   useEffect(() => { api('/api/v1/admin/infra').then(setInfra) }, [])
 
@@ -546,6 +813,7 @@ export default function Admin() {
   const tabs: { id: Tab; label: string; icon: typeof Shield }[] = [
     { id: 'overview', label: '개요', icon: Eye },
     { id: 'iam', label: 'IAM', icon: Users },
+    { id: 'departments', label: '부서', icon: Building2 },
     { id: 'model', label: '모델', icon: Settings2 },
     { id: 'metrics', label: '메트릭', icon: Activity },
     { id: 'governance', label: '거버넌스', icon: Shield },
@@ -579,6 +847,7 @@ export default function Admin() {
       <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         {tab === 'overview' && <OverviewTab />}
         {tab === 'iam' && <IamTab />}
+        {tab === 'departments' && <DepartmentsTab />}
         {tab === 'model' && <ModelTab />}
         {tab === 'metrics' && <MetricsTab />}
         {tab === 'governance' && <GovernanceTab />}
