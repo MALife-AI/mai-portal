@@ -33,7 +33,6 @@ import {
   type GraphVisualizationData,
   type GraphStats,
   type GraphRelationship,
-  type GraphCommunity,
 } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { formatDate, truncate, cn } from '@/lib/utils'
