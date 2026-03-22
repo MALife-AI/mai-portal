@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   Shield, ShieldOff, Users, Activity, Settings2, FileText,
@@ -1802,6 +1802,8 @@ function SharedDocsTab() {
 
   useEffect(() => { loadFiles(); loadGraphStats() }, [loadFiles, loadGraphStats])
 
+  const folderInputRef = useRef<HTMLInputElement>(null)
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const fileList = e.target.files
     if (!fileList || fileList.length === 0) return
@@ -1819,6 +1821,40 @@ function SharedDocsTab() {
     setUploading(false)
     toast.success('공용 문서 업로드', `${successCount}건 성공${errorCount > 0 ? `, ${errorCount}건 실패` : ''}`)
     loadFiles()
+    e.target.value = ''
+  }
+
+  async function handleFolderUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+
+    // 숨김 파일/디렉토리 필터
+    const files: File[] = []
+    const relativePaths: string[] = []
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i]!
+      const path = (f as any).webkitRelativePath || f.name
+      const parts = path.split('/')
+      if (parts.some((p: string) => p.startsWith('.') || p.startsWith('__'))) continue
+      files.push(f)
+      relativePaths.push(path)
+    }
+
+    if (files.length === 0) {
+      toast.error('폴더 업로드', '업로드할 파일이 없습니다')
+      return
+    }
+
+    const folderName = relativePaths[0]?.split('/')[0] || '폴더'
+    setUploading(true)
+    try {
+      const result = await ingestApi.uploadBatch(files, 'Shared/', relativePaths)
+      toast.success('폴더 업로드 완료', `${folderName}: ${result.results?.length || files.length}건`)
+      loadFiles()
+    } catch (err) {
+      toast.error('폴더 업로드 실패', String(err))
+    }
+    setUploading(false)
     e.target.value = ''
   }
 
@@ -1929,26 +1965,45 @@ function SharedDocsTab() {
             <UploadCloud size={16} className="text-gold-500" />
             <h3 className="text-sm font-semibold text-surface-900">공용 문서 업로드</h3>
           </div>
-          <label className={cn(
-            'btn-primary text-xs flex items-center gap-1.5 cursor-pointer',
-            uploading && 'opacity-50 pointer-events-none',
-          )}>
-            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            {uploading ? '업로드 중...' : '파일 추가'}
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.hwp,.pptx,.docx,.xlsx,.xls,.txt,.md"
-              className="hidden"
-              onChange={handleUpload}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => folderInputRef.current?.click()}
               disabled={uploading}
-            />
-          </label>
+              className={cn('btn-secondary text-xs flex items-center gap-1.5', uploading && 'opacity-50 pointer-events-none')}
+            >
+              <FolderOpen size={12} />
+              폴더 업로드
+            </button>
+            <label className={cn(
+              'btn-primary text-xs flex items-center gap-1.5 cursor-pointer',
+              uploading && 'opacity-50 pointer-events-none',
+            )}>
+              {uploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {uploading ? '업로드 중...' : '파일 추가'}
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.hwp,.pptx,.docx,.xlsx,.xls,.txt,.md"
+                className="hidden"
+                onChange={handleUpload}
+                disabled={uploading}
+              />
+            </label>
+          </div>
+          {/* 폴더 업로드 hidden input */}
+          <input
+            ref={folderInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFolderUpload}
+            disabled={uploading}
+            {...{ webkitdirectory: '', directory: '' } as any}
+          />
         </div>
         <p className="text-2xs text-surface-600 mb-3">
           여기서 업로드한 문서는 <span className="font-mono text-gold-500">Shared/</span> 경로에 저장되어 모든 사용자가 접근할 수 있습니다.
         </p>
-        <p className="text-2xs text-surface-500">PDF · HWP · PPTX · DOCX · TXT · MD</p>
+        <p className="text-2xs text-surface-500">PDF · HWP · PPTX · DOCX · XLSX · TXT · MD</p>
       </div>
 
       {/* 공용 문서 목록 */}
