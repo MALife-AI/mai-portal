@@ -6,7 +6,7 @@ import {
   Loader2, RefreshCw, Save, Cpu, HardDrive, Gauge,
   Building2, Plus, Trash2, Edit3, KeyRound, Copy,
   UploadCloud, FolderOpen, Brain, History, RotateCcw,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Square, Terminal, Play,
 } from 'lucide-react'
 import { adminApi, getUserId, ingestApi, graphApi, type IamConfig, type KillSwitchStatus } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
@@ -1358,87 +1358,410 @@ function GpuServerMetrics() {
   )
 }
 
-function InfraTab() {
-  const [infra, setInfra] = useState<InfraData | null>(null)
+// ─── InfraTab types ───────────────────────────────────────────────────────────
 
-  useEffect(() => { api('/api/v1/admin/infra').then(setInfra) }, [])
+interface Host { id: string; name: string; address: string; description?: string }
 
-  if (!infra) return <div className="text-center py-12"><Loader2 size={20} className="animate-spin text-gold-500 mx-auto" /></div>
+interface GpuCard { index: number; name: string; vram_used_gb: number; vram_total_gb: number; temperature: number; utilization: number }
+
+interface HostStatus {
+  cpu_percent: number
+  memory: { used_gb: number; total_gb: number; percent: number }
+  disk: { free_gb: number; total_gb: number; percent: number }
+  gpus: GpuCard[]
+}
+
+interface Machine {
+  id: string; name: string; model: string; status: 'running' | 'stopped' | 'error'
+  port: number; cpu_percent: number; memory_gb: number
+}
+
+interface CreateMachineForm {
+  name: string; model: string; port: number; ctx_size: number
+  cpu_cores: number; memory_gb: number; gpu_device: string
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ResourceBar({ label, value, max, unit, icon: Icon }: {
+  label: string; value: number; max: number; unit: string; icon: React.ElementType
+}) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
+  const color = pct > 85 ? '#FF3B30' : pct > 65 ? '#F37021' : '#34C759'
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          <Icon size={12} className="text-gold-500" />
+          <span className="text-2xs text-surface-600 uppercase">{label}</span>
+        </div>
+        <span className="text-2xs font-mono text-surface-800">{value}{unit} / {max}{unit} ({pct}%)</span>
+      </div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
+        <motion.div
+          className="h-full rounded-full"
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          style={{ background: color }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function LogModal({ machineId, hostId, onClose }: { machineId: string; hostId: string; onClose: () => void }) {
+  const [logs, setLogs] = useState<string>('로그를 불러오는 중...')
+  useEffect(() => {
+    api(`/api/v1/admin/hosts/${hostId}/machines/${machineId}/logs`)
+      .then(d => setLogs(typeof d === 'string' ? d : d?.logs ?? JSON.stringify(d, null, 2)))
+      .catch(() => setLogs('로그를 불러올 수 없습니다.'))
+  }, [machineId, hostId])
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="panel p-5 w-[700px] max-h-[80vh] flex flex-col gap-3"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Terminal size={14} className="text-gold-500" />
+            <span className="text-xs font-semibold text-surface-900">머신 로그 — {machineId}</span>
+          </div>
+          <button onClick={onClose} className="btn-secondary text-xs">닫기</button>
+        </div>
+        <pre className="flex-1 overflow-auto rounded p-3 text-2xs font-mono text-surface-800 leading-relaxed"
+          style={{ background: 'var(--color-bg-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {logs}
+        </pre>
+      </motion.div>
+    </div>
+  )
+}
+
+function CreateMachineModal({ hostId, onClose, onCreated }: {
+  hostId: string; onClose: () => void; onCreated: () => void
+}) {
+  const toast = useToast()
+  const [models, setModels] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState<CreateMachineForm>({
+    name: '', model: '', port: 8801, ctx_size: 16384, cpu_cores: 4, memory_gb: 16, gpu_device: 'all',
+  })
+
+  useEffect(() => {
+    api(`/api/v1/admin/hosts/${hostId}/models`)
+      .then(d => setModels(Array.isArray(d) ? d : d?.models ?? []))
+      .catch(() => setModels([]))
+  }, [hostId])
+
+  const set = <K extends keyof CreateMachineForm>(k: K, v: CreateMachineForm[K]) =>
+    setForm(f => ({ ...f, [k]: v }))
+
+  async function submit() {
+    if (!form.name || !form.model) { toast.error('입력 오류', '이름과 모델을 선택하세요.'); return }
+    setBusy(true)
+    try {
+      await api(`/api/v1/admin/hosts/${hostId}/machines/create`, {
+        method: 'POST', body: JSON.stringify(form),
+      })
+      toast.success('머신 생성', `${form.name} 생성 완료`)
+      onCreated()
+      onClose()
+    } catch (e) {
+      toast.error('생성 실패', String(e))
+    }
+    setBusy(false)
+  }
 
   return (
-    <div className="space-y-6">
-      {/* System info */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="panel p-4">
-          <div className="flex items-center gap-2 mb-2"><Cpu size={14} className="text-gold-500" /><span className="text-2xs text-surface-600 uppercase">CPU</span></div>
-          <p className="text-xl font-bold text-surface-900">{infra.cpu_percent}%</p>
-          <p className="text-2xs text-surface-600 mt-1">{infra.processor}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="panel p-5 w-[480px] flex flex-col gap-4"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Server size={14} className="text-gold-500" />
+            <span className="text-xs font-semibold text-surface-900">새 머신 생성</span>
+          </div>
+          <button onClick={onClose} className="btn-secondary text-xs">취소</button>
         </div>
-        <div className="panel p-4">
-          <div className="flex items-center gap-2 mb-2"><Server size={14} className="text-gold-500" /><span className="text-2xs text-surface-600 uppercase">메모리</span></div>
-          <p className="text-xl font-bold text-surface-900">{infra.memory?.used_gb} / {infra.memory?.total_gb} GB</p>
-          <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
-            <div className="h-full rounded-full" style={{ width: `${infra.memory?.percent}%`, background: infra.memory?.percent > 80 ? '#FF3B30' : '#F37021' }} />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="text-2xs text-surface-600 mb-1 block">머신 이름</label>
+            <input className="input-field w-full" placeholder="예: llama-8b-01"
+              value={form.name} onChange={e => set('name', e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-2xs text-surface-600 mb-1 block">모델 선택</label>
+            <select className="input-field w-full" value={form.model} onChange={e => set('model', e.target.value)}>
+              <option value="">-- 모델 선택 --</option>
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 mb-1 block">포트</label>
+            <input type="number" className="input-field w-full" value={form.port}
+              onChange={e => set('port', Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 mb-1 block">ctx-size</label>
+            <input type="number" className="input-field w-full" value={form.ctx_size}
+              onChange={e => set('ctx_size', Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 mb-1 block">CPU 코어</label>
+            <input type="number" className="input-field w-full" value={form.cpu_cores}
+              onChange={e => set('cpu_cores', Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="text-2xs text-surface-600 mb-1 block">메모리 GB</label>
+            <input type="number" className="input-field w-full" value={form.memory_gb}
+              onChange={e => set('memory_gb', Number(e.target.value))} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-2xs text-surface-600 mb-1 block">GPU 장치</label>
+            <select className="input-field w-full" value={form.gpu_device} onChange={e => set('gpu_device', e.target.value)}>
+              <option value="all">all (전체)</option>
+              <option value="0">GPU 0</option>
+              <option value="1">GPU 1</option>
+              <option value="none">none (CPU 전용)</option>
+            </select>
           </div>
         </div>
-        <div className="panel p-4">
-          <div className="flex items-center gap-2 mb-2"><HardDrive size={14} className="text-gold-500" /><span className="text-2xs text-surface-600 uppercase">디스크</span></div>
-          <p className="text-xl font-bold text-surface-900">{infra.disk_free_gb} GB</p>
-          <p className="text-2xs text-surface-600 mt-1">여유 공간</p>
+        <button onClick={submit} disabled={busy} className="btn-primary w-full flex items-center justify-center gap-2 text-xs">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+          머신 시작
+        </button>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── InfraTab ─────────────────────────────────────────────────────────────────
+
+function InfraTab() {
+  const toast = useToast()
+  const [hosts, setHosts] = useState<Host[]>([])
+  const [selectedHost, setSelectedHost] = useState<string>('')
+  const [hostStatus, setHostStatus] = useState<HostStatus | null>(null)
+  const [machines, setMachines] = useState<Machine[]>([])
+  const [logMachineId, setLogMachineId] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [showAddHost, setShowAddHost] = useState(false)
+  const [newHost, setNewHost] = useState({ name: '', address: '', description: '' })
+  const [statusLoading, setStatusLoading] = useState(false)
+
+  // Load hosts on mount
+  useEffect(() => {
+    api('/api/v1/admin/hosts')
+      .then(d => {
+        const list: Host[] = Array.isArray(d) ? d : d?.hosts ?? []
+        setHosts(list)
+        if (list.length > 0 && !selectedHost) setSelectedHost(list[0]!.id)
+      })
+      .catch(() => setHosts([]))
+  }, [])
+
+  // Load status + machines when host changes
+  const loadHostData = useCallback(async (hostId: string) => {
+    if (!hostId) return
+    setStatusLoading(true)
+    try {
+      const [status, mList] = await Promise.all([
+        api(`/api/v1/admin/hosts/${hostId}/status`),
+        api(`/api/v1/admin/hosts/${hostId}/machines`),
+      ])
+      setHostStatus(status ?? null)
+      setMachines(Array.isArray(mList) ? mList : mList?.machines ?? [])
+    } catch {
+      setHostStatus(null); setMachines([])
+    }
+    setStatusLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (selectedHost) loadHostData(selectedHost)
+  }, [selectedHost, loadHostData])
+
+  // Auto-refresh every 10s
+  useEffect(() => {
+    if (!selectedHost) return
+    const id = setInterval(() => loadHostData(selectedHost), 10_000)
+    return () => clearInterval(id)
+  }, [selectedHost, loadHostData])
+
+  async function machineAction(machineId: string, action: 'restart' | 'stop') {
+    try {
+      await api(`/api/v1/admin/hosts/${selectedHost}/machines/${machineId}/${action}`, { method: 'POST' })
+      toast.success(action === 'restart' ? '재시작' : '중지', machineId)
+      loadHostData(selectedHost)
+    } catch (e) { toast.error('오류', String(e)) }
+  }
+
+  async function addHost() {
+    if (!newHost.name || !newHost.address) { toast.error('입력 오류', '이름과 주소를 입력하세요.'); return }
+    try {
+      await api('/api/v1/admin/hosts', { method: 'POST', body: JSON.stringify(newHost) })
+      toast.success('호스트 등록', newHost.name)
+      const d = await api('/api/v1/admin/hosts')
+      const list: Host[] = Array.isArray(d) ? d : d?.hosts ?? []
+      setHosts(list)
+      setShowAddHost(false)
+      setNewHost({ name: '', address: '', description: '' })
+    } catch (e) { toast.error('등록 실패', String(e)) }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Host selector row */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-1">
+          <Server size={14} className="text-gold-500 shrink-0" />
+          <span className="text-xs font-semibold text-surface-800 whitespace-nowrap">호스트 선택</span>
+          <div className="relative flex-1 max-w-xs">
+            <select
+              className="input-field w-full appearance-none pr-7"
+              value={selectedHost}
+              onChange={e => setSelectedHost(e.target.value)}
+            >
+              {hosts.length === 0 && <option value="">-- 호스트 없음 --</option>}
+              {hosts.map(h => <option key={h.id} value={h.id}>{h.name} ({h.address})</option>)}
+            </select>
+            <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-surface-600 pointer-events-none" />
+          </div>
         </div>
+        <button onClick={() => loadHostData(selectedHost)} disabled={!selectedHost || statusLoading}
+          className="btn-secondary flex items-center gap-1.5 text-xs">
+          <RefreshCw size={12} className={cn(statusLoading && 'animate-spin')} />
+          새로고침
+        </button>
+        <button onClick={() => setShowCreate(true)} disabled={!selectedHost}
+          className="btn-primary flex items-center gap-1.5 text-xs">
+          <Plus size={12} /> 머신 생성
+        </button>
+        <button onClick={() => setShowAddHost(v => !v)} className="btn-secondary flex items-center gap-1.5 text-xs">
+          <Plus size={12} /> 호스트 추가
+        </button>
       </div>
 
-      {/* GPU */}
-      <div className="panel p-4">
-        <p className="text-xs font-semibold text-surface-800 mb-2">GPU</p>
-        <p className="text-sm text-surface-900">{infra.gpu}</p>
-      </div>
-
-      {/* Services */}
-      <div className="panel p-4">
-        <p className="text-xs font-semibold text-surface-800 mb-3">서비스 상태</p>
-        <div className="space-y-2">
-          {infra.services?.map((s: any) => (
-            <div key={s.name} className="flex items-center justify-between py-1.5" style={{ borderBottom: '1px solid var(--color-border)' }}>
-              <div className="flex items-center gap-2">
-                <div className={cn('w-2 h-2 rounded-full', s.status === 'running' ? 'bg-status-success' : 'bg-status-error')} />
-                <span className="text-xs font-semibold text-surface-900">{s.name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xs font-mono text-surface-600">:{s.port}</span>
-                <span className={cn('tag text-2xs', s.status === 'running' ? 'tag-success' : 'tag-error')}>{s.status}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* GPU 추론 서버 실시간 메트릭 */}
-      <GpuServerMetrics />
-
-      {/* GPU 추론 서버 관리 */}
-      <div className="panel p-4">
-        <p className="text-xs font-semibold text-surface-800 mb-3">GPU 추론 서버 (Docker)</p>
-        <div className="space-y-2 text-xs text-surface-600">
-          <p>GPU 머신에 모델 서빙 컨테이너를 배포합니다.</p>
-          <div className="rounded p-3 font-mono text-2xs" style={{ background: 'var(--color-bg-primary)' }}>
-            <p className="text-surface-600"># 14B 모델로 원격 배포 (24GB VRAM)</p>
-            <p className="text-gold-500">./deploy.sh gpu-server.local 14b</p>
-            <p className="text-surface-600 mt-2"># .env에서 엔드포인트 변경</p>
-            <p className="text-gold-500">LLAMA_SERVER_URL=http://gpu-server:8801/v1</p>
+      {/* Add host inline form */}
+      {showAddHost && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="panel p-4">
+          <p className="text-xs font-semibold text-surface-800 mb-3">새 호스트 등록</p>
+          <div className="grid grid-cols-3 gap-3">
+            <input className="input-field" placeholder="이름 (예: gpu-server-01)"
+              value={newHost.name} onChange={e => setNewHost(v => ({ ...v, name: e.target.value }))} />
+            <input className="input-field" placeholder="주소 (예: 192.168.1.100)"
+              value={newHost.address} onChange={e => setNewHost(v => ({ ...v, address: e.target.value }))} />
+            <input className="input-field" placeholder="설명 (선택)"
+              value={newHost.description} onChange={e => setNewHost(v => ({ ...v, description: e.target.value }))} />
           </div>
           <div className="flex gap-2 mt-3">
-            <div className="flex-1 panel p-3">
-              <p className="text-2xs text-surface-600 mb-1">지원 GPU</p>
-              <p className="text-xs text-surface-900">NVIDIA CUDA, Apple Metal, CPU</p>
-            </div>
-            <div className="flex-1 panel p-3">
-              <p className="text-2xs text-surface-600 mb-1">지원 모델</p>
-              <p className="text-xs text-surface-900">Qwen3.5 2B/4B/9B/14B/32B (GGUF)</p>
-            </div>
+            <button onClick={addHost} className="btn-primary text-xs flex items-center gap-1.5"><Plus size={12} />등록</button>
+            <button onClick={() => setShowAddHost(false)} className="btn-secondary text-xs">취소</button>
           </div>
+        </motion.div>
+      )}
+
+      {/* Host resource bars */}
+      {statusLoading && !hostStatus && (
+        <div className="text-center py-8"><Loader2 size={18} className="animate-spin text-gold-500 mx-auto" /></div>
+      )}
+      {hostStatus && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="panel p-4 space-y-4">
+          <p className="text-xs font-semibold text-surface-800">호스트 리소스</p>
+          <ResourceBar label="CPU" value={hostStatus.cpu_percent} max={100} unit="%" icon={Cpu} />
+          <ResourceBar label="메모리" value={hostStatus.memory.used_gb} max={hostStatus.memory.total_gb} unit=" GB" icon={Server} />
+          <ResourceBar label="디스크 사용" value={hostStatus.disk.total_gb - hostStatus.disk.free_gb}
+            max={hostStatus.disk.total_gb} unit=" GB" icon={HardDrive} />
+
+          {/* GPU cards */}
+          {hostStatus.gpus.length > 0 && (
+            <div>
+              <p className="text-2xs text-surface-600 uppercase mb-2">GPU</p>
+              <div className="grid grid-cols-2 gap-2">
+                {hostStatus.gpus.map(g => (
+                  <div key={g.index} className="rounded p-3 space-y-1.5" style={{ background: 'var(--color-bg-primary)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xs font-semibold text-surface-900 truncate max-w-[140px]">{g.name}</span>
+                      <span className="text-2xs font-mono text-gold-500">GPU {g.index}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-2xs text-surface-600">
+                      <span>VRAM {g.vram_used_gb.toFixed(1)}/{g.vram_total_gb}GB</span>
+                      <span className="text-center">{g.temperature}°C</span>
+                      <span className="text-right">{g.utilization}%</span>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+                      <div className="h-full rounded-full bg-gold-500"
+                        style={{ width: `${Math.min(100, (g.vram_used_gb / g.vram_total_gb) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Running machines */}
+      {selectedHost && (
+        <div className="panel p-4">
+          <p className="text-xs font-semibold text-surface-800 mb-3">
+            실행 중인 머신 <span className="text-gold-500 font-mono">({machines.length})</span>
+          </p>
+          {machines.length === 0 ? (
+            <p className="text-xs text-surface-600 text-center py-6">등록된 머신이 없습니다.</p>
+          ) : (
+            <div className="space-y-2">
+              {machines.map(m => (
+                <motion.div key={m.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 py-2.5 px-3 rounded"
+                  style={{ background: 'var(--color-bg-primary)' }}>
+                  <div className={cn('w-2 h-2 rounded-full shrink-0',
+                    m.status === 'running' ? 'bg-status-success' :
+                    m.status === 'error' ? 'bg-status-error' : 'bg-surface-500')} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-surface-900 truncate">{m.name}</span>
+                      <span className="text-2xs font-mono text-surface-600 truncate max-w-[160px]">{m.model}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 text-2xs text-surface-600">
+                      <span>:{m.port}</span>
+                      <span>CPU {m.cpu_percent.toFixed(1)}%</span>
+                      <span>MEM {m.memory_gb.toFixed(1)} GB</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => machineAction(m.id, 'restart')}
+                      className="btn-secondary text-2xs flex items-center gap-1 px-2 py-1">
+                      <RefreshCw size={10} />재시작
+                    </button>
+                    <button onClick={() => machineAction(m.id, 'stop')}
+                      className="btn-secondary text-2xs flex items-center gap-1 px-2 py-1 text-status-error">
+                      <Square size={10} />중지
+                    </button>
+                    <button onClick={() => setLogMachineId(m.id)}
+                      className="btn-secondary text-2xs flex items-center gap-1 px-2 py-1">
+                      <Terminal size={10} />로그
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* Modals */}
+      {logMachineId && (
+        <LogModal machineId={logMachineId} hostId={selectedHost} onClose={() => setLogMachineId(null)} />
+      )}
+      {showCreate && selectedHost && (
+        <CreateMachineModal hostId={selectedHost} onClose={() => setShowCreate(false)}
+          onCreated={() => loadHostData(selectedHost)} />
+      )}
     </div>
   )
 }

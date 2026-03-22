@@ -1216,3 +1216,228 @@ async def get_infra_status(
         "k8s_connected": False,
         "k8s_note": "쿠버네티스 연동은 클러스터 설정 후 활성화됩니다.",
     }
+
+
+# ─── 베어메탈 호스트 / 머신 관리 ─────────────────────────────────────────────
+
+import json as _json
+from pathlib import Path as _Path
+
+_HOSTS_PATH = _Path(settings.vault_root).parent / "data" / "hosts.json"
+
+
+def _load_hosts() -> list[dict]:
+    if _HOSTS_PATH.exists():
+        return _json.loads(_HOSTS_PATH.read_text(encoding="utf-8"))
+    return []
+
+
+def _save_hosts(hosts: list[dict]) -> None:
+    _HOSTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _HOSTS_PATH.write_text(_json.dumps(hosts, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+async def _agent_request(host: dict, path: str, method: str = "GET", body: dict | None = None) -> dict:
+    """베어메탈 Agent 데몬에 HTTP 요청을 보냅니다."""
+    import httpx
+    url = f"http://{host['host']}:{host.get('agent_port', 9090)}{path}"
+    headers = {"Authorization": f"Bearer {host.get('agent_token', '')}"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        if method == "GET":
+            resp = await client.get(url, headers=headers)
+        else:
+            resp = await client.post(url, headers=headers, json=body or {})
+        resp.raise_for_status()
+        return resp.json()
+
+
+@router.get("/hosts")
+async def list_hosts(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """등록된 베어메탈 호스트 목록을 반환합니다."""
+    require_admin(user_id, iam)
+    return {"hosts": _load_hosts()}
+
+
+class HostCreateRequest(BaseModel):
+    id: str
+    name: str
+    host: str
+    agent_port: int = 9090
+    agent_token: str = ""
+    description: str = ""
+
+
+@router.post("/hosts")
+async def add_host(
+    body: HostCreateRequest,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """베어메탈 호스트를 등록합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    if any(h["id"] == body.id for h in hosts):
+        raise HTTPException(409, f"호스트 '{body.id}' 이미 존재")
+    hosts.append(body.model_dump())
+    _save_hosts(hosts)
+    return {"status": "added", "id": body.id}
+
+
+@router.delete("/hosts/{host_id}")
+async def remove_host(
+    host_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """호스트를 제거합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    hosts = [h for h in hosts if h["id"] != host_id]
+    _save_hosts(hosts)
+    return {"status": "removed", "id": host_id}
+
+
+@router.get("/hosts/{host_id}/status")
+async def get_host_status(
+    host_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """호스트의 실시간 리소스 상태를 조회합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404, f"호스트 '{host_id}' 없음")
+    try:
+        return await _agent_request(host, "/status")
+    except Exception as e:
+        return {"error": str(e), "hostname": host.get("name", host_id), "offline": True}
+
+
+@router.get("/hosts/{host_id}/machines")
+async def list_host_machines(
+    host_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """호스트에서 실행 중인 머신 목록을 조회합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404, f"호스트 '{host_id}' 없음")
+    try:
+        return await _agent_request(host, "/machines")
+    except Exception as e:
+        return {"machines": [], "error": str(e)}
+
+
+class MachineCreateBody(BaseModel):
+    name: str
+    model_path: str
+    model_alias: str = "model"
+    port: int = 8801
+    ctx_size: int = 16384
+    n_gpu_layers: int = 999
+    cpus: float = 4.0
+    memory_gb: float = 16.0
+    gpu_device: str = "all"
+    extra_args: str = ""
+
+
+@router.post("/hosts/{host_id}/machines/create")
+async def create_host_machine(
+    host_id: str,
+    body: MachineCreateBody,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """호스트에 새 추론 머신을 생성합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404, f"호스트 '{host_id}' 없음")
+    try:
+        return await _agent_request(host, "/machines/create", method="POST", body=body.model_dump())
+    except Exception as e:
+        raise HTTPException(500, f"머신 생성 실패: {e}")
+
+
+@router.post("/hosts/{host_id}/machines/{machine_name}/stop")
+async def stop_host_machine(
+    host_id: str,
+    machine_name: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """머신을 중지합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404, f"호스트 '{host_id}' 없음")
+    try:
+        return await _agent_request(host, f"/machines/{machine_name}/stop", method="POST")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.post("/hosts/{host_id}/machines/{machine_name}/restart")
+async def restart_host_machine(
+    host_id: str,
+    machine_name: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """머신을 재시작합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404, f"호스트 '{host_id}' 없음")
+    try:
+        return await _agent_request(host, f"/machines/{machine_name}/restart", method="POST")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.get("/hosts/{host_id}/machines/{machine_name}/logs")
+async def get_host_machine_logs(
+    host_id: str,
+    machine_name: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """머신 로그를 조회합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404)
+    try:
+        return await _agent_request(host, f"/machines/{machine_name}/logs")
+    except Exception as e:
+        return {"logs": "", "error": str(e)}
+
+
+@router.get("/hosts/{host_id}/models")
+async def list_host_models(
+    host_id: str,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    """호스트에서 사용 가능한 모델 목록을 조회합니다."""
+    require_admin(user_id, iam)
+    hosts = _load_hosts()
+    host = next((h for h in hosts if h["id"] == host_id), None)
+    if not host:
+        raise HTTPException(404)
+    try:
+        return await _agent_request(host, "/models")
+    except Exception as e:
+        return {"models": [], "error": str(e)}

@@ -1,0 +1,10 @@
+[
+  {
+    "id": "gpu-server-01",
+    "name": "GPU 서버 #1",
+    "host": "175.117.225.76",
+    "agent_port": 9090,
+    "agent_token": "mai-agent-secret",
+    "description": "메인 추론 서버 (RTX 4090)"
+  }
+]
