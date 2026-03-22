@@ -1,35 +1,182 @@
-import { NavLink } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { NavLink, useLocation } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
   FolderOpen,
   Bot,
-  UploadCloud,
   Search,
   ShieldCheck,
   ChevronDown,
+  ChevronRight,
   User,
-  Network,
   Wrench,
   Sun,
   Moon,
   Workflow,
+  Zap,
+  Settings,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
-const NAV_ITEMS = [
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  end?: boolean
+  adminOnly?: boolean
+}
+
+interface NavGroup {
+  label: string
+  icon: typeof LayoutDashboard
+  children: NavItem[]
+  adminOnly?: boolean
+}
+
+type NavEntry = NavItem | NavGroup
+
+function isGroup(entry: NavEntry): entry is NavGroup {
+  return 'children' in entry
+}
+
+const NAV_ITEMS: NavEntry[] = [
   { to: '/', label: '대시보드', icon: LayoutDashboard, end: true },
-  { to: '/vault', label: '파일 탐색기', icon: FolderOpen },
-  { to: '/agent', label: '에이전트 콘솔', icon: Bot },
-  { to: '/workflow', label: '워크플로우', icon: Workflow },
-  { to: '/ingest', label: '문서 업로드', icon: UploadCloud },
-  { to: '/search', label: '시맨틱 검색', icon: Search },
-  { to: '/graph', label: '지식 그래프', icon: Network },
-  { to: '/skills', label: '스킬', icon: Wrench },
-  { to: '/admin', label: '관리 패널', icon: ShieldCheck },
+  { to: '/agent', label: '에이전트', icon: Bot },
+  { to: '/docs', label: '문서 관리', icon: FolderOpen },
+  { to: '/knowledge', label: '지식 검색', icon: Search },
+  {
+    label: '자동화',
+    icon: Zap,
+    children: [
+      { to: '/workflow', label: '워크플로우', icon: Workflow },
+      { to: '/skills', label: '스킬', icon: Wrench },
+    ],
+  },
+  { to: '/admin', label: '관리 패널', icon: ShieldCheck, adminOnly: true },
 ]
+
+function NavMenu() {
+  const location = useLocation()
+  const { userId } = useStore()
+  const isAdmin = userId === 'admin01'
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    // 현재 경로가 그룹 내에 있으면 자동 펼침
+    const initial = new Set<string>()
+    for (const entry of NAV_ITEMS) {
+      if (isGroup(entry) && entry.children.some(c => location.pathname.startsWith(c.to))) {
+        initial.add(entry.label)
+      }
+    }
+    return initial
+  })
+
+  function toggleGroup(label: string) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label); else next.add(label)
+      return next
+    })
+  }
+
+  return (
+    <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+      <p className="px-2 py-1.5 text-2xs font-mono text-surface-600 uppercase tracking-widest">
+        메뉴
+      </p>
+      {NAV_ITEMS.filter(entry => !entry.adminOnly || isAdmin).map((entry) => {
+        if (isGroup(entry)) {
+          const expanded = expandedGroups.has(entry.label)
+          const isChildActive = entry.children.some(c => location.pathname.startsWith(c.to))
+          const Icon = entry.icon
+
+          return (
+            <div key={entry.label}>
+              <button
+                onClick={() => toggleGroup(entry.label)}
+                className={cn(
+                  'nav-item w-full',
+                  isChildActive && 'text-gold-500',
+                )}
+              >
+                <Icon
+                  size={15}
+                  className={cn('shrink-0', isChildActive ? 'text-gold-500' : 'text-surface-600')}
+                />
+                <span className="flex-1 text-left">{entry.label}</span>
+                <motion.span
+                  animate={{ rotate: expanded ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown size={12} className="text-surface-600" />
+                </motion.span>
+              </button>
+              <AnimatePresence>
+                {expanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="ml-4 pl-2 space-y-0.5 py-0.5" style={{ borderLeft: '1px solid var(--color-border)' }}>
+                      {entry.children.map(({ to, label, icon: ChildIcon, end }) => (
+                        <NavLink
+                          key={to}
+                          to={to}
+                          end={end}
+                          className={({ isActive }) => cn('nav-item text-xs', isActive && 'active')}
+                        >
+                          {({ isActive }) => (
+                            <>
+                              <ChildIcon
+                                size={13}
+                                className={cn('shrink-0', isActive ? 'text-gold-500' : 'text-surface-600')}
+                              />
+                              <span>{label}</span>
+                              {isActive && (
+                                <motion.span layoutId="nav-indicator" className="ml-auto w-1 h-1 rounded-full bg-gold-500" />
+                              )}
+                            </>
+                          )}
+                        </NavLink>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )
+        }
+
+        const { to, label, icon: Icon, end } = entry
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) => cn('nav-item', isActive && 'active')}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon
+                  size={15}
+                  className={cn('shrink-0 transition-colors', isActive ? 'text-gold-500' : 'text-surface-600')}
+                />
+                <span>{label}</span>
+                {isActive && (
+                  <motion.span layoutId="nav-indicator" className="ml-auto w-1 h-1 rounded-full bg-gold-500" />
+                )}
+              </>
+            )}
+          </NavLink>
+        )
+      })}
+    </nav>
+  )
+}
 
 const DEMO_USERS = ['admin01', 'user01', 'analyst01', 'viewer01']
 
@@ -111,41 +258,20 @@ export function Sidebar() {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        <p className="px-2 py-1.5 text-2xs font-mono text-surface-600 uppercase tracking-widest">
-          메뉴
-        </p>
-        {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) => cn('nav-item', isActive && 'active')}
-          >
-            {({ isActive }) => (
-              <>
-                <Icon
-                  size={15}
-                  className={cn(
-                    'shrink-0 transition-colors',
-                    isActive ? 'text-gold-500' : 'text-surface-600',
-                  )}
-                />
-                <span>{label}</span>
-                {isActive && (
-                  <motion.span
-                    layoutId="nav-indicator"
-                    className="ml-auto w-1 h-1 rounded-full bg-gold-500"
-                  />
-                )}
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
+      <NavMenu />
 
-      {/* Theme toggle */}
-      <div className="px-3 py-2">
+      {/* Settings + Theme */}
+      <div className="px-3 py-2 space-y-0.5">
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => cn(
+            'w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100 transition-colors',
+            isActive ? 'text-gold-500' : 'text-surface-600 hover:text-surface-900',
+          )}
+        >
+          <Settings size={14} />
+          <span className="text-xs">계정 설정</span>
+        </NavLink>
         <ThemeToggle />
       </div>
 
