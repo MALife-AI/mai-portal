@@ -722,6 +722,12 @@ body {
 }
 
 /* ─── React Flow Dark Theme ─────────────────────────────────────────────── */
+.workflow-canvas .react-flow__node {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
 .workflow-canvas .react-flow__node.selected > div {
   box-shadow: 0 0 0 2px var(--color-gold) !important;
   border-color: var(--color-gold) !important;

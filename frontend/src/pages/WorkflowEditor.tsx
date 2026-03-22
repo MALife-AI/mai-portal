@@ -13,6 +13,7 @@ import {
   type Edge,
   type Connection,
   type NodeProps,
+  type ReactFlowInstance,
   MarkerType,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -20,7 +21,7 @@ import '@xyflow/react/dist/style.css'
 /* React Flow 스타일은 index.css의 .workflow-canvas 섹션에 정의 */
 import {
   Play, Save, Trash2, Plus, Loader2, ChevronRight,
-  Wrench, Zap, ArrowRight, GripVertical, Settings2, Cpu,
+  Wrench, Zap, ArrowRight, GripVertical, Settings2, Cpu, Search, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/store/useStore'
@@ -152,10 +153,176 @@ function SkillNode({ data, selected }: NodeProps) {
   )
 }
 
+// ─── 그래프 엔티티 검색 필드 ─────────────────────────────────────────────────
+
+interface GraphEntity {
+  id: string
+  name: string
+  entity_type: string
+  mentions: number
+  properties?: Record<string, any>
+}
+
+function GraphSearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<GraphEntity[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [selectedEntity, setSelectedEntity] = useState<GraphEntity | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // 외부 클릭 시 드롭다운 닫기
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as HTMLElement)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  // value로부터 초기 선택 상태 복원
+  useEffect(() => {
+    if (value && !selectedEntity) {
+      setQuery(value)
+    }
+  }, [value])
+
+  function handleSearch(q: string) {
+    setQuery(q)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!q.trim()) {
+      setResults([])
+      setOpen(false)
+      return
+    }
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const uid = getUserId()
+        const r = await fetch(`${API}/api/v1/graph/entities?q=${encodeURIComponent(q)}&limit=8`, {
+          headers: { 'X-User-Id': uid },
+        })
+        const d = await r.json()
+        setResults(d.entities || [])
+        setOpen(true)
+      } catch {
+        setResults([])
+      }
+      setLoading(false)
+    }, 300)
+  }
+
+  function handleSelect(entity: GraphEntity) {
+    setSelectedEntity(entity)
+    setQuery(entity.name)
+    onChange(entity.id)
+    setOpen(false)
+  }
+
+  function handleClear() {
+    setSelectedEntity(null)
+    setQuery('')
+    onChange('')
+    setOpen(false)
+  }
+
+  const TYPE_COLORS: Record<string, string> = {
+    product: '#F37021', person: '#4A90D9', organization: '#34C759',
+    regulation: '#AF52DE', concept: '#FF3B30', event: '#5AC8FA',
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative mt-0.5">
+      <div className="flex items-center gap-1">
+        <div className="relative flex-1">
+          <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-surface-500" />
+          <input
+            value={query}
+            onChange={e => handleSearch(e.target.value)}
+            onFocus={() => results.length > 0 && setOpen(true)}
+            placeholder={placeholder}
+            className="input-field w-full text-2xs pl-6 pr-6"
+            style={{ borderColor: selectedEntity ? 'rgba(52,199,89,0.6)' : 'rgba(74,144,217,0.5)' }}
+          />
+          {loading && <Loader2 size={10} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-surface-500" />}
+          {selectedEntity && !loading && (
+            <button
+              onClick={handleClear}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center text-surface-500 hover:text-status-error hover:bg-surface-200 transition-colors"
+            >
+              <X size={8} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 선택된 엔티티 뱃지 */}
+      {selectedEntity && (
+        <div
+          className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-2xs"
+          style={{
+            background: (TYPE_COLORS[selectedEntity.entity_type] || '#6b829e') + '14',
+            border: `1px solid ${TYPE_COLORS[selectedEntity.entity_type] || '#6b829e'}33`,
+          }}
+        >
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: TYPE_COLORS[selectedEntity.entity_type] || '#6b829e' }} />
+          <span className="font-semibold text-surface-900">{selectedEntity.name}</span>
+          <span className="text-surface-600">{selectedEntity.entity_type}</span>
+          <span className="text-surface-500 ml-auto">x{selectedEntity.mentions}</span>
+        </div>
+      )}
+
+      {/* 검색 결과 드롭다운 */}
+      {open && results.length > 0 && (
+        <div
+          className="absolute z-50 left-0 right-0 mt-1 rounded-md shadow-xl overflow-hidden max-h-48 overflow-y-auto"
+          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+        >
+          {results.map(entity => {
+            const color = TYPE_COLORS[entity.entity_type] || '#6b829e'
+            return (
+              <button
+                key={entity.id}
+                onClick={() => handleSelect(entity)}
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-200 transition-colors"
+              >
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-2xs font-semibold text-surface-900 block truncate">{entity.name}</span>
+                  <span className="text-2xs text-surface-600">{entity.entity_type} · 언급 {entity.mentions}회</span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {open && results.length === 0 && !loading && query.trim() && (
+        <div
+          className="absolute z-50 left-0 right-0 mt-1 rounded-md shadow-xl px-3 py-2"
+          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+        >
+          <p className="text-2xs text-surface-600">검색 결과 없음</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── 입력 노드 ──────────────────────────────────────────────────────────────
 
 function InputNode({ data, selected }: NodeProps) {
-  const fields = (data.fields || []) as Array<{ name: string; type: string; label: string; value: string }>
+  const fields = (data.fields || []) as Array<{ name: string; type: string; label: string; value: string; inputType?: string }>
   const onFieldChange = data.onFieldChange as ((idx: number, value: string) => void) | undefined
 
   return (
@@ -184,12 +351,10 @@ function InputNode({ data, selected }: NodeProps) {
                 />
               </div>
             ) : f.inputType === 'graph' ? (
-              <input
+              <GraphSearchField
                 value={f.value}
-                onChange={e => onFieldChange?.(i, e.target.value)}
-                placeholder="엔티티 ID 또는 이름"
-                className="input-field w-full text-2xs mt-0.5"
-                style={{ borderColor: 'rgba(74,144,217,0.5)' }}
+                onChange={(val) => onFieldChange?.(i, val)}
+                placeholder="엔티티 검색..."
               />
             ) : (
               <input
@@ -307,6 +472,8 @@ export default function WorkflowEditor() {
   const [runLog, setRunLog] = useState<Array<{ skill: string; status: string; result?: string }>>([])
   const toast = useToast()
   const idCounter = useRef(0)
+  const reactFlowWrapper = useRef<HTMLDivElement>(null)
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
 
   useEffect(() => {
     api('/api/v1/skills/list').then(d => setSkills(d.skills || []))
@@ -337,11 +504,17 @@ export default function WorkflowEditor() {
                  { name: 'customer_name', type: 'string', label: '고객명', value: '', inputType: 'text' }],
       product: [{ name: 'product_code', type: 'string', label: '상품코드', value: '', inputType: 'text' },
                 { name: 'insured_age', type: 'integer', label: '피보험자 나이', value: '', inputType: 'text' }],
+      underwriting: [
+        { name: 'customer_id', type: 'string', label: '고객번호', value: '', inputType: 'text' },
+        { name: 'product_code', type: 'string', label: '상품코드', value: '', inputType: 'text' },
+        { name: 'sum_insured', type: 'number', label: '가입금액 (원)', value: '', inputType: 'text' },
+      ],
     }
     const fields = fieldsMap[inputType] || fieldsMap.text
     const labels: Record<string, string> = {
       text: '텍스트', file: '파일', graph: '그래프 엔티티',
       query: '검색 쿼리', customer: '고객 정보', product: '상품 정보',
+      underwriting: '언더라이팅 심사',
     }
     const newNode: Node = {
       id,
@@ -415,12 +588,12 @@ export default function WorkflowEditor() {
     }
   }
 
-  function addSkillNode(skill: Skill) {
+  function addSkillNode(skill: Skill, position?: { x: number; y: number }) {
     const id = `skill-${++idCounter.current}`
     const newNode: Node = {
       id,
       type: 'skill',
-      position: { x: 100 + (nodes.length % 3) * 300, y: 80 + Math.floor(nodes.length / 3) * 250 },
+      position: position ?? { x: 100 + (nodes.length % 3) * 300, y: 80 + Math.floor(nodes.length / 3) * 250 },
       data: {
         label: skill.display_name || skill.skill_name,
         description: skill.description,
@@ -432,6 +605,29 @@ export default function WorkflowEditor() {
     }
     setNodes(nds => [...nds, newNode])
   }
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      const skillName = e.dataTransfer.getData('application/malife-skill')
+      if (!skillName || !reactFlowInstance) return
+
+      const skill = skills.find(s => s.skill_name === skillName)
+      if (!skill) return
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: e.clientX,
+        y: e.clientY,
+      })
+      addSkillNode(skill, position)
+    },
+    [reactFlowInstance, skills],
+  )
 
   function clearCanvas() {
     setNodes([])
@@ -538,9 +734,9 @@ export default function WorkflowEditor() {
               { type: 'text', label: '텍스트', icon: '📝' },
               { type: 'file', label: '파일', icon: '📁' },
               { type: 'graph', label: '그래프', icon: '🔗' },
-              { type: 'query', label: '검색', icon: '🔍' },
               { type: 'customer', label: '고객', icon: '👤' },
               { type: 'product', label: '상품', icon: '📦' },
+              { type: 'underwriting', label: '언더라이팅', icon: '🏥' },
             ].map(inp => (
               <button
                 key={inp.type}
@@ -570,18 +766,24 @@ export default function WorkflowEditor() {
         {skills.map(skill => {
           const catColor = CATEGORY_COLORS[skill.category] || CATEGORY_COLORS.custom
           return (
-            <button
+            <div
               key={skill.skill_name}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('application/malife-skill', skill.skill_name)
+                e.dataTransfer.effectAllowed = 'move'
+              }}
               onClick={() => addSkillNode(skill)}
-              className="w-full text-left p-2.5 rounded-md hover:bg-surface-200 transition-colors group"
+              className="w-full text-left p-2.5 rounded-md hover:bg-surface-200 transition-colors group cursor-grab active:cursor-grabbing"
               style={{ border: '1px solid var(--color-border)' }}
             >
               <div className="flex items-center gap-2">
+                <GripVertical size={12} className="text-surface-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: catColor }} />
                 <span className="text-sm font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
               </div>
-              <p className="text-xs text-surface-600 line-clamp-2 mt-1 ml-5">{skill.description}</p>
-            </button>
+              <p className="text-xs text-surface-600 line-clamp-2 mt-1 ml-9">{skill.description}</p>
+            </div>
           )
         })}
 
@@ -634,13 +836,16 @@ export default function WorkflowEditor() {
         </div>
 
         {/* React Flow */}
-        <div className="w-full h-full pt-10 workflow-canvas">
+        <div ref={reactFlowWrapper} className="w-full h-full pt-10 workflow-canvas">
           <ReactFlow
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onInit={setReactFlowInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
             nodeTypes={nodeTypes}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView
