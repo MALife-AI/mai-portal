@@ -1785,7 +1785,7 @@ function SharedDocsTab() {
   const loadFiles = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await fetch('/api/v1/vault/files?base=Public', { headers: { 'X-User-Id': getUserId() } })
+      const r = await fetch('/api/v1/vault/files?base=Shared', { headers: { 'X-User-Id': getUserId() } })
       const d = await r.json()
       setFiles(Array.isArray(d) ? d : [])
     } catch { setFiles([]) }
