@@ -5,8 +5,10 @@ import {
   Server, Eye, CheckCircle2, XCircle, AlertTriangle,
   Loader2, RefreshCw, Save, Cpu, HardDrive, Gauge,
   Building2, Plus, Trash2, Edit3, KeyRound, Copy,
+  UploadCloud, FolderOpen, Brain, History, RotateCcw,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
-import { adminApi, getUserId, type IamConfig, type KillSwitchStatus } from '@/api/client'
+import { adminApi, getUserId, ingestApi, graphApi, type IamConfig, type KillSwitchStatus } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { cn } from '@/lib/utils'
 import {
@@ -70,7 +72,7 @@ interface GuardrailConfig {
   custom_rules: { id: string; name: string; pattern: string; action: string; description: string }[]
 }
 
-type Tab = 'overview' | 'iam' | 'departments' | 'api-keys' | 'model' | 'metrics' | 'guardrails' | 'governance' | 'infra'
+type Tab = 'overview' | 'iam' | 'departments' | 'api-keys' | 'model' | 'metrics' | 'guardrails' | 'governance' | 'infra' | 'shared-docs'
 
 // ─── Overview ────────────────────────────────────────────────────────────────
 
@@ -1441,6 +1443,416 @@ function InfraTab() {
   )
 }
 
+// ─── 공용문서 & 그래프 관리 ─────────────────────────────────────────────────
+
+function SharedDocsTab() {
+  const toast = useToast()
+  const [files, setFiles] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [graphBuilding, setGraphBuilding] = useState(false)
+  const [graphStats, setGraphStats] = useState<{ node_count: number; edge_count: number; community_count: number } | null>(null)
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [versions, setVersions] = useState<Array<{
+    commit_hash: string; full_hash: string; message: string; author: string; date: string
+  }>>([])
+  const [loadingVersions, setLoadingVersions] = useState(false)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+
+  const loadFiles = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await fetch('/api/v1/vault/files?base=Public', { headers: { 'X-User-Id': getUserId() } })
+      const d = await r.json()
+      setFiles(Array.isArray(d) ? d : [])
+    } catch { setFiles([]) }
+    setLoading(false)
+  }, [])
+
+  const loadGraphStats = useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/graph/stats', { headers: { 'X-User-Id': getUserId() } })
+      const d = await r.json()
+      setGraphStats(d)
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => { loadFiles(); loadGraphStats() }, [loadFiles, loadGraphStats])
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+    setUploading(true)
+    let successCount = 0
+    let errorCount = 0
+    for (let i = 0; i < fileList.length; i++) {
+      try {
+        await ingestApi.upload(fileList[i]!, 'Shared/')
+        successCount++
+      } catch {
+        errorCount++
+      }
+    }
+    setUploading(false)
+    toast.success('공용 문서 업로드', `${successCount}건 성공${errorCount > 0 ? `, ${errorCount}건 실패` : ''}`)
+    loadFiles()
+    e.target.value = ''
+  }
+
+  async function handleBuildGraph() {
+    setGraphBuilding(true)
+    try {
+      const result = await graphApi.buildGraph()
+      toast.success('그래프 재구축 완료', `엔티티 ${result.entities}개, 관계 ${result.relationships}개`)
+      loadGraphStats()
+    } catch (err) {
+      toast.error('그래프 구축 실패', String(err))
+    }
+    setGraphBuilding(false)
+  }
+
+  async function handleDeleteFile(path: string) {
+    if (!confirm(`"${path.split('/').pop()}" 문서를 삭제하시겠습니까?`)) return
+    try {
+      await fetch('/api/v1/vault/doc', {
+        method: 'DELETE',
+        headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      })
+      toast.success('문서 삭제', path.split('/').pop() || path)
+      if (selectedFile === path) { setSelectedFile(null); setVersions([]) }
+      selectedPaths.delete(path)
+      setSelectedPaths(new Set(selectedPaths))
+      loadFiles()
+    } catch (err) {
+      toast.error('삭제 실패', String(err))
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedPaths.size === 0) return
+    if (!confirm(`${selectedPaths.size}건의 문서를 삭제하시겠습니까?`)) return
+    try {
+      await fetch('/api/v1/vault/doc/bulk-delete', {
+        method: 'POST',
+        headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: Array.from(selectedPaths) }),
+      })
+      toast.success('일괄 삭제 완료', `${selectedPaths.size}건`)
+      setSelectedPaths(new Set())
+      setSelectedFile(null)
+      setVersions([])
+      loadFiles()
+    } catch (err) {
+      toast.error('삭제 실패', String(err))
+    }
+  }
+
+  async function loadHistory(path: string) {
+    setSelectedFile(path)
+    setLoadingVersions(true)
+    try {
+      const r = await fetch(`/api/v1/vault/doc/history?path=${encodeURIComponent(path)}`, {
+        headers: { 'X-User-Id': getUserId() },
+      })
+      const d = await r.json()
+      setVersions(d.versions || [])
+    } catch { setVersions([]) }
+    setLoadingVersions(false)
+  }
+
+  async function handleRollback(path: string, commit: string) {
+    if (!confirm(`이 버전(${commit})으로 되돌리시겠습니까?`)) return
+    try {
+      await fetch('/api/v1/vault/doc/rollback', {
+        method: 'POST',
+        headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, commit }),
+      })
+      toast.success('롤백 완료', `${path.split('/').pop()} → ${commit}`)
+      loadHistory(path)
+    } catch (err) {
+      toast.error('롤백 실패', String(err))
+    }
+  }
+
+  function toggleSelect(path: string) {
+    const next = new Set(selectedPaths)
+    if (next.has(path)) next.delete(path); else next.add(path)
+    setSelectedPaths(next)
+  }
+
+  function toggleSelectAll() {
+    if (selectedPaths.size === files.length) setSelectedPaths(new Set())
+    else setSelectedPaths(new Set(files))
+  }
+
+  const extColors: Record<string, string> = {
+    pdf: '#FF3B30', md: '#34C759', hwp: '#4A90D9', docx: '#4A90D9', pptx: '#F5A623', txt: '#8E8E93',
+  }
+
+  function formatDate(iso: string) {
+    const d = new Date(iso)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* 공용 문서 업로드 */}
+      <div className="panel p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <UploadCloud size={16} className="text-gold-500" />
+            <h3 className="text-sm font-semibold text-surface-900">공용 문서 업로드</h3>
+          </div>
+          <label className={cn(
+            'btn-primary text-xs flex items-center gap-1.5 cursor-pointer',
+            uploading && 'opacity-50 pointer-events-none',
+          )}>
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            {uploading ? '업로드 중...' : '파일 추가'}
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.hwp,.pptx,.docx,.txt,.md"
+              className="hidden"
+              onChange={handleUpload}
+              disabled={uploading}
+            />
+          </label>
+        </div>
+        <p className="text-2xs text-surface-600 mb-3">
+          여기서 업로드한 문서는 <span className="font-mono text-gold-500">Shared/</span> 경로에 저장되어 모든 사용자가 접근할 수 있습니다.
+        </p>
+        <p className="text-2xs text-surface-500">PDF · HWP · PPTX · DOCX · TXT · MD</p>
+      </div>
+
+      {/* 공용 문서 목록 */}
+      <div className="panel p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <FolderOpen size={16} className="text-gold-500" />
+            <h3 className="text-sm font-semibold text-surface-900">공용 문서 목록</h3>
+            <span className="text-2xs font-mono text-surface-600">({files.length}건)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedPaths.size > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="btn-secondary text-xs flex items-center gap-1 text-status-error border-status-error/30 hover:bg-status-error/10"
+              >
+                <Trash2 size={11} />
+                {selectedPaths.size}건 삭제
+              </button>
+            )}
+            <button
+              onClick={loadFiles}
+              disabled={loading}
+              className="btn-secondary text-xs flex items-center gap-1"
+            >
+              {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              새로고침
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={20} className="animate-spin text-surface-600" />
+          </div>
+        ) : files.length === 0 ? (
+          <div className="text-center py-8">
+            <FileText size={24} className="text-surface-600 mx-auto mb-2" />
+            <p className="text-xs text-surface-600">공용 문서가 없습니다</p>
+          </div>
+        ) : (
+          <div className="space-y-0.5 max-h-80 overflow-y-auto">
+            {/* 전체 선택 */}
+            <div className="flex items-center gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <input
+                type="checkbox"
+                checked={selectedPaths.size === files.length && files.length > 0}
+                onChange={toggleSelectAll}
+                className="rounded"
+              />
+              <span className="text-2xs text-surface-600 font-mono">전체 선택</span>
+            </div>
+            {files.map(f => {
+              const name = f.split('/').pop() || f
+              const ext = name.split('.').pop()?.toLowerCase() || ''
+              const isActive = selectedFile === f
+              return (
+                <div key={f}>
+                  <div
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-md transition-colors group cursor-pointer',
+                      isActive ? 'bg-gold-500/10' : 'hover:bg-surface-200',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPaths.has(f)}
+                      onChange={() => toggleSelect(f)}
+                      onClick={e => e.stopPropagation()}
+                      className="rounded shrink-0"
+                    />
+                    <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => loadHistory(f)}>
+                      <span
+                        className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded uppercase shrink-0"
+                        style={{ background: (extColors[ext] || '#8E8E93') + '20', color: extColors[ext] || '#8E8E93' }}
+                      >
+                        {ext}
+                      </span>
+                      <span className="text-xs text-surface-900 flex-1 truncate">{name}</span>
+                    </div>
+                    <button
+                      onClick={() => loadHistory(f)}
+                      className={cn(
+                        'text-surface-600 hover:text-gold-500 transition-all shrink-0',
+                        isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      )}
+                      title="버전 이력"
+                    >
+                      <History size={12} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteFile(f)}
+                      className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-status-error transition-all shrink-0"
+                      title="삭제"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                    {isActive ? (
+                      <ChevronDown size={12} className="text-gold-500 shrink-0" />
+                    ) : (
+                      <ChevronRight size={12} className="text-surface-500 opacity-0 group-hover:opacity-60 shrink-0" />
+                    )}
+                  </div>
+
+                  {/* 인라인 버전 히스토리 */}
+                  {isActive && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      className="ml-8 mr-2 mb-2 overflow-hidden"
+                    >
+                      <div
+                        className="rounded-md p-3 mt-1 space-y-1.5"
+                        style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <History size={11} className="text-gold-500" />
+                            <span className="text-2xs font-semibold text-surface-800">버전 이력</span>
+                          </div>
+                          <button
+                            onClick={() => { setSelectedFile(null); setVersions([]) }}
+                            className="text-2xs text-surface-600 hover:text-surface-800"
+                          >
+                            닫기
+                          </button>
+                        </div>
+
+                        {loadingVersions ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 size={14} className="animate-spin text-surface-600" />
+                          </div>
+                        ) : versions.length === 0 ? (
+                          <p className="text-2xs text-surface-600 py-2">버전 이력이 없습니다</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {versions.map((v, idx) => (
+                              <div
+                                key={v.full_hash}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-200 transition-colors group/ver"
+                              >
+                                {/* 타임라인 점 */}
+                                <div className="flex flex-col items-center shrink-0">
+                                  <div
+                                    className="w-2 h-2 rounded-full"
+                                    style={{ background: idx === 0 ? '#34C759' : 'var(--color-border)' }}
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-2xs font-mono text-gold-500 shrink-0">{v.commit_hash}</span>
+                                    <span className="text-2xs text-surface-800 truncate">{v.message}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="text-2xs text-surface-600">{formatDate(v.date)}</span>
+                                    <span className="text-2xs text-surface-500">{v.author}</span>
+                                  </div>
+                                </div>
+                                {idx === 0 ? (
+                                  <span className="text-2xs font-semibold text-status-success shrink-0 px-1.5 py-0.5 rounded bg-status-success/10">
+                                    현재
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleRollback(f, v.full_hash)}
+                                    className="opacity-0 group-hover/ver:opacity-100 flex items-center gap-1 text-2xs text-surface-600 hover:text-gold-500 transition-all shrink-0 px-1.5 py-0.5 rounded hover:bg-gold-500/10"
+                                    title="이 버전으로 롤백"
+                                  >
+                                    <RotateCcw size={10} />
+                                    롤백
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 지식 그래프 관리 */}
+      <div className="panel p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Brain size={16} className="text-gold-500" />
+            <h3 className="text-sm font-semibold text-surface-900">지식 그래프 관리</h3>
+          </div>
+          <button
+            onClick={handleBuildGraph}
+            disabled={graphBuilding}
+            className="btn-primary text-xs flex items-center gap-1.5"
+          >
+            {graphBuilding ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            {graphBuilding ? '구축 중...' : '그래프 재구축'}
+          </button>
+        </div>
+
+        <p className="text-2xs text-surface-600 mb-4">
+          공용 문서에서 엔티티와 관계를 추출하여 지식 그래프를 구축합니다. 문서 추가/삭제 후 재구축하세요.
+        </p>
+
+        {graphStats ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: '엔티티', value: graphStats.node_count, color: '#F37021' },
+              { label: '관계', value: graphStats.edge_count, color: '#4A90D9' },
+              { label: '커뮤니티', value: graphStats.community_count, color: '#34C759' },
+            ].map(s => (
+              <div key={s.label} className="panel p-3 text-center">
+                <p className="text-lg font-bold font-mono" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-2xs text-surface-600 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-2xs text-surface-600 italic">그래프 통계를 불러오는 중...</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1470,6 +1882,7 @@ export default function Admin() {
     { id: 'guardrails', label: '가드레일', icon: ShieldOff },
     { id: 'governance', label: '거버넌스', icon: Shield },
     { id: 'infra', label: '인프라', icon: Server },
+    { id: 'shared-docs', label: '공용문서', icon: FolderOpen },
   ]
 
   return (
@@ -1506,6 +1919,7 @@ export default function Admin() {
         {tab === 'guardrails' && <GuardrailsTab />}
         {tab === 'governance' && <GovernanceTab />}
         {tab === 'infra' && <InfraTab />}
+        {tab === 'shared-docs' && <SharedDocsTab />}
       </motion.div>
     </div>
   )

@@ -199,7 +199,7 @@ export default function Ingestion() {
   const toast = useToast()
   const { userId } = useStore()
 
-  const [destBase, setDestBase] = useState<'Shared' | 'Private'>('Shared')
+  const destBase = 'Private' as const
   const [jobs, setJobs] = useState<UploadJob[]>([])
   const [folderJobs, setFolderJobs] = useState<FolderUploadJob[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -528,31 +528,17 @@ export default function Ingestion() {
         </p>
       </div>
 
-      {/* Destination selector */}
+      {/* Destination info */}
       <div className="panel p-4">
-        <p className="text-xs font-semibold text-surface-700 mb-3">업로드 대상 경로</p>
-        <div className="flex gap-2">
-          {(['Shared', 'Private'] as const).map((base) => (
-            <button
-              key={base}
-              onClick={() => setDestBase(base)}
-              className={cn(
-                'flex-1 py-2.5 px-4 rounded-md text-sm font-semibold transition-all',
-                destBase === base
-                  ? 'bg-gold-500/20 text-gold-500 border border-gold-500/30'
-                  : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
-              )}
-            >
-              {base === 'Shared' ? (
-                <span>🌐 Shared/</span>
-              ) : (
-                <span>🔒 Private/{userId}/</span>
-              )}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <span className="text-sm">🔒</span>
+          <p className="text-xs font-semibold text-surface-700">개인 워크스페이스에 업로드됩니다</p>
         </div>
-        <p className="text-2xs text-surface-600 mt-2 font-mono">
-          저장 경로: {destBase === 'Private' ? `Private/${userId}/` : 'Shared/'}
+        <p className="text-2xs text-surface-600 mt-1 font-mono">
+          저장 경로: Private/{userId}/
+        </p>
+        <p className="text-2xs text-surface-500 mt-1">
+          공용 문서는 관리 패널에서 업로드할 수 있습니다.
         </p>
       </div>
 
