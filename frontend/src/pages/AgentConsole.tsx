@@ -279,6 +279,9 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
   const [showLog, setShowLog] = useState(false)
   const [graphOverlay, setGraphOverlay] = useState<{ focusIndex: number } | null>(null)
 
+  // 에이전트 메시지: content 없고 clarification도 없으면 렌더링 안 함
+  if (!isUser && !message.content?.trim() && !message.clarification) return null
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
