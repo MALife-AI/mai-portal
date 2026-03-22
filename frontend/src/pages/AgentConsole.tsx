@@ -871,15 +871,9 @@ export default function AgentConsole() {
               ) : (
                 <>
                   <AnimatePresence>
-                    {activeThread.messages
-                      .filter((msg) => {
-                        // 에이전트 메시지: content가 비어있고 clarification도 없으면 숨김
-                        if (msg.role === 'agent' && !msg.content?.trim() && !msg.clarification) return false
-                        return true
-                      })
-                      .map((msg) => (
-                        <MessageBubble key={msg.id} message={msg} onSelectOption={handleSelectOption} />
-                      ))}
+                    {activeThread.messages.map((msg) => (
+                      <MessageBubble key={msg.id} message={msg} onSelectOption={handleSelectOption} />
+                    ))}
                   </AnimatePresence>
                   {isRunning && !hasStreamContent && (
                     <motion.div
