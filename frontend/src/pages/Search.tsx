@@ -142,7 +142,7 @@ function ResultCard({
   )
 }
 
-export default function Search() {
+export default function Search({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const toast = useToast()
@@ -207,17 +207,19 @@ export default function Search() {
 
   function handleResultClick(path: string) {
     setSelectedVaultPath(path)
-    navigate('/vault')
+    navigate('/docs')
   }
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h2 className="font-display font-semibold text-surface-900 text-xl mb-1">시맨틱 검색</h2>
-        <p className="text-sm text-surface-600">
-          ChromaDB 벡터 검색 — 자연어로 질의하면 의미적으로 가장 유사한 문서를 찾습니다.
-        </p>
-      </div>
+      {!hideHeader && (
+        <div>
+          <h2 className="font-display font-semibold text-surface-900 text-xl mb-1">시맨틱 검색</h2>
+          <p className="text-sm text-surface-600">
+            ChromaDB 벡터 검색 — 자연어로 질의하면 의미적으로 가장 유사한 문서를 찾습니다.
+          </p>
+        </div>
+      )}
 
       {/* Search form */}
       <div className="panel p-4">
