@@ -376,14 +376,21 @@ class SkillRegistry:
                 user_id = _current_user_id[0]
                 entities = store.search_entities(query=query, entity_type=entity_type, limit=n * 2)
 
+                # admin 역할이면 IAM 체크 건너뜀
+                is_admin = False
+                if iam:
+                    user_roles = iam.get_user_roles(user_id)
+                    is_admin = "admin" in user_roles
+
                 results = []
                 denied_count = 0
                 for e in entities:
-                    # IAM 권한 체크: source_paths 기반
-                    if iam and e.source_paths:
-                        readable_paths = [p for p in e.source_paths if iam.can_read(user_id, p)]
-                        if not readable_paths and e.source_paths:
-                            # 모든 소스에 대해 권한 없음
+                    # IAM 권한 체크 (admin은 전체 접근)
+                    allowed_sources = e.source_paths[:3]
+                    if iam and e.source_paths and not is_admin:
+                        normalized = [p.lstrip("/") for p in e.source_paths]
+                        allowed_sources = [p for p in normalized if iam.can_read(user_id, p)]
+                        if not allowed_sources:
                             denied_count += 1
                             continue
 
@@ -403,7 +410,7 @@ class SkillRegistry:
                             entry[key] = val
                     sources = [
                         p.split("/")[-1].replace(".md", "").split("@")[0]
-                        for p in (readable_paths if iam else e.source_paths[:3])
+                        for p in allowed_sources[:3]
                     ]
                     if sources:
                         entry["sources"] = sources
