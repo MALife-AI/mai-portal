@@ -448,8 +448,7 @@ class SkillRegistry:
 
             async def _invoke(**kwargs: Any) -> str:
                 prompt_parts = [
-                    f"[{display_name} 전문가 모드]\n",
-                    f"## 지시사항\n{expert_prompt}\n",
+                    f"[{display_name}]\n{expert_prompt}\n",
                 ]
 
                 if use_graphrag:
@@ -457,13 +456,10 @@ class SkillRegistry:
                     entities = _search_graph(query, entity_type=search_type, n=3)
                     context = _json.dumps(entities, ensure_ascii=False) if entities else "관련 데이터 없음"
                     # 컨텍스트가 너무 길면 잘라냄
-                    if len(context) > 1500:
-                        context = context[:1500] + "..."
-                    prompt_parts.append(f"## 검색 데이터\n{context}\n")
-                    prompt_parts.append(
-                        "위 데이터를 기반으로 사용자에게 전문적이고 친절하게 답변하세요. "
-                        "데이터에 없는 내용은 추측하지 말고, 있는 정보만 활용하세요."
-                    )
+                    if len(context) > 800:
+                        context = context[:800] + "..."
+                    prompt_parts.append(f"## 데이터\n{context}\n")
+                    prompt_parts.append("위 데이터 기반으로 답변하세요. 없는 내용은 추측 금지.")
                 else:
                     # GraphRAG 불필요 — 파라미터를 직접 전달
                     params_text = "\n".join(f"- {k}: {v}" for k, v in kwargs.items() if v)

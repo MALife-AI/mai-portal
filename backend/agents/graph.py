@@ -423,11 +423,18 @@ async def invoke_agent_stream(
     tools = [ask_user_tool, save_memory_tool, recall_memory_tool]
     skill_map: dict[str, Any] = {}
     for skill in skill_registry.list_skills():
+        # 내장 스킬(__prompt__, __code__)만 tools에 포함 (토큰 절약)
+        # 외부 API 스킬은 endpoint가 http URL이므로 제외
+        skill_meta = skill_registry.get_skill(skill["name"])
+        endpoint = skill_meta.get("endpoint", "") if skill_meta else ""
+        if endpoint.startswith("http"):
+            continue  # 외부 API 스킬 제외
+
         tool_def = {
             "type": "function",
             "function": {
                 "name": skill["name"],
-                "description": skill.get("description", ""),
+                "description": skill.get("description", "")[:100],
                 "parameters": skill.get("params_schema", {"type": "object", "properties": {}}),
             },
         }
@@ -545,6 +552,11 @@ async def invoke_agent_stream(
     if custom_prompt:
         truncated = custom_prompt[:200]
         system_prompt += f"\n\n[사용자 지시사항]\n{truncated}"
+
+    # 시스템 프롬프트 길이 제한 (토큰 ≈ 글자수/2 기준, 여유분 확보)
+    if len(system_prompt) > 3000:
+        system_prompt = system_prompt[:3000] + "\n\n(컨텍스트 축소됨)"
+        logger.info("System prompt truncated to 3000 chars")
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -791,7 +803,7 @@ async def invoke_agent_stream(
                     if tool:
                         args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
                         result = await tool.ainvoke(args)
-                        result_str = str(result)[:2000]
+                        result_str = str(result)[:1200]
                     else:
                         result_str = (
                             f"'{_display_name(tc['name'])}' 스킬을 사용할 수 없습니다. "
@@ -831,8 +843,18 @@ async def invoke_agent_stream(
             }
 
         except Exception as exc:
+            err_str = str(exc)
             logger.error("Tool calling loop error: %s", exc, exc_info=True)
-            yield {"type": "token", "content": "\n\n죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
+            if "exceed" in err_str.lower() or "context" in err_str.lower() or "n_ctx" in err_str.lower():
+                # 컨텍스트 크기 초과 → 메시지 축소 후 재시도
+                logger.warning("Context size exceeded — trimming messages and retrying")
+                # system prompt 외 오래된 메시지 제거
+                if len(messages) > 3:
+                    messages = [messages[0]] + messages[-2:]
+                    continue
+                yield {"type": "token", "content": "\n\n답변이 너무 길어져 요약하여 안내드리겠습니다."}
+            else:
+                yield {"type": "token", "content": "\n\n죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
             break
 
     yield {"type": "done"}
