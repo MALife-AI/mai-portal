@@ -33,7 +33,7 @@ _PPTX_NS_MAP = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
 
-SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".docx", ".doc", ".pptx"})
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".docx", ".doc", ".pptx", ".xlsx", ".xls"})
 
 
 class OfficeConversionError(Exception):
@@ -86,7 +86,55 @@ class OfficeConverter:
         if not file_path.exists():
             raise OfficeConversionError(f"File not found: {file_path}")
 
+        # XLSX는 Pandoc이 아닌 openpyxl로 처리
+        if ext in (".xlsx", ".xls"):
+            return self._xlsx_to_ast(file_path)
+
         return self._pandoc_to_ast(file_path, media_dir=media_dir)
+
+    def _xlsx_to_ast(self, file_path: Path) -> dict[str, Any]:
+        """XLSX를 Pandoc AST 호환 구조로 변환합니다."""
+        try:
+            import openpyxl
+        except ImportError:
+            raise OfficeConversionError("openpyxl이 설치되지 않았습니다: pip install openpyxl")
+
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        blocks: list[dict[str, Any]] = []
+
+        for sheet in wb.worksheets:
+            # 시트 제목
+            blocks.append({
+                "t": "Header",
+                "c": [2, ["", [], []], [{"t": "Str", "c": sheet.title}]],
+            })
+
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                continue
+
+            # GFM 테이블 형식의 AST 생성 (Plain text block으로)
+            lines = []
+            headers = [str(c) if c is not None else "" for c in rows[0]]
+            lines.append("| " + " | ".join(headers) + " |")
+            lines.append("| " + " | ".join("---" for _ in headers) + " |")
+            for row in rows[1:]:
+                cells = [str(c).replace("|", "\\|").replace("\n", " ") if c is not None else "" for c in row]
+                lines.append("| " + " | ".join(cells) + " |")
+
+            table_md = "\n".join(lines)
+            blocks.append({
+                "t": "RawBlock",
+                "c": ["markdown", table_md],
+            })
+
+        wb.close()
+
+        return {
+            "pandoc-api-version": [1, 23, 1],
+            "meta": {},
+            "blocks": blocks,
+        }
 
     def convert_pptx_by_slide(self, file_path: Path) -> list[dict[str, Any]]:
         """Split a PPTX file into one Pandoc AST dict per slide.

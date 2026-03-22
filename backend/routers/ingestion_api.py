@@ -201,7 +201,7 @@ async def ingest_local_path(
     if not source.exists() or not source.is_dir():
         return {"error": f"Directory not found: {source_dir}"}
 
-    SUPPORTED = {".pdf", ".docx", ".pptx", ".hwp", ".hwpx", ".doc"}
+    SUPPORTED = {".pdf", ".docx", ".pptx", ".hwp", ".hwpx", ".doc", ".xlsx", ".xls"}
     TEXT_EXTS = {".md", ".txt", ".yaml", ".yml", ".json"}
     IGNORE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
 

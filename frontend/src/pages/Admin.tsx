@@ -1938,7 +1938,7 @@ function SharedDocsTab() {
             <input
               type="file"
               multiple
-              accept=".pdf,.hwp,.pptx,.docx,.txt,.md"
+              accept=".pdf,.hwp,.pptx,.docx,.xlsx,.xls,.txt,.md"
               className="hidden"
               onChange={handleUpload}
               disabled={uploading}

@@ -472,13 +472,84 @@ class GraphExtractor:
             if err:
                 errors.append(err)
 
+        # ── 이미지 라벨링 → 그래프 엔티티 ─────────────────────────
+        image_entities = 0
+        assets_dir = vault_root / "assets"
+        if assets_dir.exists():
+            image_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+            image_files = [
+                f for f in assets_dir.rglob("*")
+                if f.is_file() and f.suffix.lower() in image_exts
+            ]
+            if image_files:
+                logger.info("Processing %d images for graph labeling", len(image_files))
+                try:
+                    from backend.ingestion.vlm_processor import get_image_processor
+                    processor = get_image_processor()
+
+                    async def _label_image(img_path: Path) -> Entity | None:
+                        async with sem:
+                            try:
+                                result = await processor.analyze_image(img_path)
+                                # 이미지에서 추출한 정보를 엔티티로
+                                caption = result.get("caption", "") or img_path.stem
+                                img_type = result.get("type", "diagram")
+                                table_md = result.get("markdown_table", "")
+
+                                rel_path = "/" + img_path.relative_to(vault_root).as_posix()
+                                parent_doc = img_path.parent.name  # assets/{doc_name}/
+
+                                # 표는 table 엔티티로, 나머지는 image 엔티티로
+                                if img_type == "table" and table_md:
+                                    etype = "table"
+                                    ename = f"표: {parent_doc}" if parent_doc else f"표: {img_path.stem}"
+                                else:
+                                    etype = "image"
+                                    ename = caption[:80] if caption else img_path.stem
+
+                                entity = Entity(
+                                    id=f"{'tbl' if etype == 'table' else 'img'}_{img_path.stem}",
+                                    name=ename,
+                                    entity_type=etype,
+                                    properties={
+                                        "image_path": rel_path,
+                                        "content": table_md[:800] if table_md else "",
+                                        "caption": caption[:200],
+                                        "parent_document": parent_doc,
+                                        "file_name": img_path.name,
+                                    },
+                                    source_paths=[f"/assets/{parent_doc}/{img_path.name}"],
+                                    mentions=1,
+                                )
+                                self._store.add_entity(entity)
+
+                                # 부모 문서와의 관계
+                                if parent_doc:
+                                    self._store.add_relationship(Relationship(
+                                        source_id=f"img_{img_path.stem}",
+                                        target_id=parent_doc,
+                                        relation_type="belongs_to",
+                                        source_path=rel_path,
+                                    ))
+
+                                return entity
+                            except Exception as exc:
+                                logger.debug("Image labeling failed for %s: %s", img_path.name, exc)
+                                return None
+
+                    img_results = await asyncio.gather(*[_label_image(f) for f in image_files[:50]])
+                    image_entities = sum(1 for r in img_results if r is not None)
+                except Exception as exc:
+                    logger.warning("Image labeling batch failed: %s", exc)
+
         communities = self._store.get_communities()
         self._store.save()
 
         return {
             "files": len(md_files),
-            "entities": total_entities,
+            "entities": total_entities + image_entities,
             "relationships": total_rels,
+            "image_entities": image_entities,
             "communities": len(communities),
             "errors": errors,
         }

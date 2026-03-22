@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class IngestionPipeline:
     """이기종 문서를 규격화된 마크다운으로 변환하는 통합 파이프라인."""
 
-    SUPPORTED_EXTENSIONS = {".hwp", ".hwpx", ".pptx", ".docx", ".doc"}
+    SUPPORTED_EXTENSIONS = {".hwp", ".hwpx", ".pptx", ".docx", ".doc", ".xlsx", ".xls"}
 
     def __init__(self) -> None:
         self.vlm = get_image_processor()
