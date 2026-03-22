@@ -118,12 +118,13 @@ function MarketplaceCard({ skill, onInstall }: { skill: Skill & { installed: boo
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Package size={13} className="text-gold-500 shrink-0" />
-            <span className="text-sm font-semibold text-surface-900">{skill.skill_name}</span>
+            <span className="text-sm font-semibold text-surface-900">{skill.display_name || skill.skill_name}</span>
             <span className="px-1.5 py-0.5 rounded text-2xs font-mono font-semibold" style={{ background: catColor, color: catText }}>
               {skill.category}
             </span>
           </div>
           <p className="text-xs text-surface-600">{skill.description}</p>
+          <p className="text-2xs text-surface-500 font-mono mt-1">{skill.skill_name}</p>
         </div>
         {skill.installed ? (
           <span className="tag tag-success flex items-center gap-1"><Check size={10} /> 설치됨</span>
@@ -411,7 +412,7 @@ export default function Skills() {
         <div className="modal-overlay" onClick={() => setEditSkill(null)}>
           <div className="modal-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-surface-900">스킬 편집: {editSkill.skill_name}</h3>
+              <h3 className="text-sm font-semibold text-surface-900">스킬 편집: {editSkill.display_name || editSkill.skill_name}</h3>
               <button onClick={() => setEditSkill(null)} className="text-surface-600 hover:text-surface-900">&times;</button>
             </div>
 

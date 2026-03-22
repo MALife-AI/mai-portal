@@ -55,6 +55,7 @@ class SkillUpdate(BaseModel):
 MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     {
         "skill_name": "multi-source-rag",
+        "display_name": "멀티소스 RAG 검색",
         "description": "멀티소스 RAG 검색 — 여러 문서에서 관련 내용을 검색하고 번호 매긴 출처를 반환합니다. 에이전트가 [1], [2] 형태로 인라인 인용할 수 있습니다.",
         "endpoint": "http://localhost:9001/api/v1/search/multi-source",
         "method": "POST",
@@ -68,6 +69,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "graphrag-search",
+        "display_name": "지식그래프 검색",
         "description": "지식그래프 기반 시맨틱 검색 — 질문과 관련된 보험 문서/엔티티를 검색합니다.",
         "endpoint": "http://localhost:9001/api/v1/graph/search",
         "method": "POST",
@@ -82,6 +84,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "vault-search",
+        "display_name": "문서 검색",
         "description": "벡터 DB 시맨틱 검색 — ChromaDB에서 유사 문서 청크를 검색합니다.",
         "endpoint": "http://localhost:9001/api/v1/search/",
         "method": "GET",
@@ -95,6 +98,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "vault-read",
+        "display_name": "문서 읽기",
         "description": "vault 문서 읽기 — 경로를 지정하여 마크다운 문서 내용을 조회합니다.",
         "endpoint": "http://localhost:9001/api/v1/vault/read",
         "method": "GET",
@@ -107,6 +111,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "web-search",
+        "display_name": "웹 검색",
         "description": "웹 검색 — 인터넷에서 최신 정보를 검색합니다.",
         "endpoint": "https://api.duckduckgo.com/",
         "method": "GET",
@@ -120,6 +125,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "insurance-calculator",
+        "display_name": "보험료 계산기",
         "description": "보험료 계산기 — 나이, 성별, 상품코드로 예상 보험료를 계산합니다.",
         "endpoint": "http://localhost:9001/api/v1/legacy/calculate",
         "method": "POST",
@@ -134,6 +140,7 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
     },
     {
         "skill_name": "document-summary",
+        "display_name": "문서 요약",
         "description": "문서 요약 — 지정된 문서를 읽고 핵심 내용을 요약합니다.",
         "endpoint": "http://localhost:9001/api/v1/agent/run",
         "method": "POST",
@@ -142,6 +149,45 @@ MARKETPLACE_SKILLS: list[dict[str, Any]] = [
             "query": {"type": "string", "description": "요약할 문서 경로 또는 요약 요청", "required": True},
         },
         "body": "에이전트를 재귀적으로 호출하여 문서를 요약합니다.",
+        "installed": False,
+    },
+    {
+        "skill_name": "underwriting",
+        "display_name": "언더라이팅 사전심사",
+        "description": "언더라이팅 사전심사 — 고객번호로 질병이력·직업·나이·성별·기가입/타사가입 내역을 자동 수집하고, 룰 기반 인수 심사 의견을 생성합니다.",
+        "endpoint": "http://localhost:9001/api/v1/legacy/underwriting",
+        "method": "POST",
+        "category": "analysis",
+        "params": {
+            "customer_id": {"type": "string", "description": "고객 번호", "required": True},
+            "product_code": {"type": "string", "description": "가입 신청 상품 코드", "required": True},
+            "sum_insured": {"type": "number", "description": "가입금액 (원)", "required": False},
+        },
+        "inputs": {
+            "customer_id": {"type": "string", "description": "고객 번호"},
+            "product_code": {"type": "string", "description": "상품 코드"},
+            "sum_insured": {"type": "number", "description": "가입금액"},
+        },
+        "outputs": {
+            "assessment": {"type": "object", "description": "심사 결과 (decision, risk_factors, warnings)"},
+            "collected_data": {"type": "object", "description": "수집된 원천 데이터 (질병이력, 직업, 가입내역)"},
+        },
+        "body": (
+            "# 언더라이팅 사전심사\n\n"
+            "고객번호 하나로 레거시 시스템에서 다음을 자동 수집합니다:\n\n"
+            "- **고객 기본정보**: 나이, 성별\n"
+            "- **질병이력**: 질병코드, 진단일, 상태(치료중/만성/완치), 중증도\n"
+            "- **직업 정보**: 직업코드, 위험등급(1~5급)\n"
+            "- **자사 기가입 내역**: 계약번호, 상품명, 가입금액, 상태\n"
+            "- **타사 가입 내역**: 보험사명, 상품명, 가입금액, 상태\n\n"
+            "수집된 데이터를 바탕으로 룰 기반 사전심사를 수행합니다:\n\n"
+            "| 심사 결과 | 의미 |\n"
+            "|-----------|------|\n"
+            "| standard | 표준체 인수 |\n"
+            "| substandard | 조건부 인수 (할증/부담보) |\n"
+            "| decline | 인수 거절 |\n"
+            "| refer | 전문 심사 회부 |\n"
+        ),
         "installed": False,
     },
 ]
@@ -245,6 +291,93 @@ async def delete_skill(skill_name: str, user_id: str = Depends(get_current_user)
     path = SKILLS_DIR / f"{skill_name}.md"
     if not path.exists():
         raise HTTPException(404, f"Skill '{skill_name}' not found")
+    path.unlink()
+    _reload_registry()
+    return {"status": "deleted", "skill_name": skill_name}
+
+
+class CodeSkillCreate(BaseModel):
+    skill_name: str = Field(..., min_length=1)
+    display_name: str = Field(...)
+    description: str = Field(...)
+    code: str = Field(...)
+    params: dict[str, Any] = Field(default_factory=dict)
+    category: str = Field(default="custom")
+
+
+CODE_SKILLS_DIR = SKILLS_DIR / "custom"
+
+# 코드 스킬에서 차단할 위험 패턴
+_BLOCKED_CODE_PATTERNS = [
+    "subprocess", "shutil", "__import__", "open(",
+    "socket", "requests", "urllib", "http.client",
+]
+
+
+@router.post("/code/create")
+async def create_code_skill(
+    body: CodeSkillCreate,
+    user_id: str = Depends(get_current_user),
+):
+    """Python 코드 기반 스킬을 생성합니다."""
+    CODE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    path = CODE_SKILLS_DIR / f"{body.skill_name}.py"
+    if path.exists():
+        raise HTTPException(409, f"Code skill '{body.skill_name}' already exists")
+
+    for pat in _BLOCKED_CODE_PATTERNS:
+        if pat in body.code:
+            raise HTTPException(400, f"보안 위반: '{pat}'은 코드 스킬에서 사용할 수 없습니다.")
+
+    from backend.agents.skill_parser import SkillRegistry
+    try:
+        registry = SkillRegistry()
+        registry.create_code_skill(
+            skill_name=body.skill_name,
+            display_name=body.display_name,
+            description=body.description,
+            code=body.code,
+            params_schema=body.params,
+            category=body.category,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"코드 스킬 생성 실패: {e}")
+
+    _reload_registry()
+    return {"status": "created", "skill_name": body.skill_name, "type": "code"}
+
+
+@router.get("/code/list")
+async def list_code_skills(user_id: str = Depends(get_current_user)):
+    """코드 스킬 목록 조회."""
+    CODE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    skills = []
+    for py_file in sorted(CODE_SKILLS_DIR.glob("*.py")):
+        source = py_file.read_text(encoding="utf-8")
+        meta: dict[str, str] = {}
+        for line in source.splitlines():
+            if not line.startswith("# "):
+                break
+            parts = line[2:].split(":", 1)
+            if len(parts) == 2:
+                meta[parts[0].strip()] = parts[1].strip()
+        skills.append({
+            "skill_name": meta.get("skill", py_file.stem),
+            "display_name": meta.get("display_name", py_file.stem),
+            "description": meta.get("description", ""),
+            "category": meta.get("category", "custom"),
+            "file": py_file.name,
+            "type": "code",
+        })
+    return {"skills": skills, "total": len(skills)}
+
+
+@router.delete("/code/delete/{skill_name}")
+async def delete_code_skill(skill_name: str, user_id: str = Depends(get_current_user)):
+    """코드 스킬 삭제."""
+    path = CODE_SKILLS_DIR / f"{skill_name}.py"
+    if not path.exists():
+        raise HTTPException(404, f"Code skill '{skill_name}' not found")
     path.unlink()
     _reload_registry()
     return {"status": "deleted", "skill_name": skill_name}
