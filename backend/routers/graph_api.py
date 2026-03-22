@@ -59,29 +59,37 @@ def _log_graph_action(user_id: str, action: str, detail: Any = None) -> None:
 # Lazy singletons — imported on first request to avoid startup overhead
 # ---------------------------------------------------------------------------
 
-_graph_store: Any = None
 _graph_extractor: Any = None
 
 
-def _get_store() -> Any:
-    """Lazily import and return the module-level GraphStore singleton."""
-    global _graph_store
-    if _graph_store is None:
-        from backend.graph.store import GraphStore  # noqa: PLC0415
-        from backend.config import settings  # noqa: PLC0415
-
-        persist_path = settings.vault_root / ".graph" / "knowledge_graph.json"
-        _graph_store = GraphStore(persist_path=persist_path)
-    return _graph_store
+def _get_layered() -> Any:
+    from backend.graph.layered_store import get_layered_store
+    return get_layered_store()
 
 
-def _get_extractor() -> Any:
-    """Lazily import and return the module-level GraphExtractor singleton."""
+def _get_store(user_id: str | None = None) -> Any:
+    """사용자 ID가 있으면 베이스+개인 병합 그래프, 없으면 베이스만."""
+    layered = _get_layered()
+    if user_id:
+        return layered.merged_store(user_id)
+    return layered.base
+
+
+def _get_store_for_write(rel_path: str, user_id: str) -> Any:
+    """문서 경로에 따라 쓸 그래프 반환 (Private→개인, 그 외→베이스)."""
+    layered = _get_layered()
+    return layered.get_store_for_path(rel_path, user_id)
+
+
+def _get_extractor(store: Any = None) -> Any:
+    """GraphExtractor를 반환. store를 지정하면 해당 store 사용."""
     global _graph_extractor
+    if store:
+        from backend.graph.extractor import GraphExtractor
+        return GraphExtractor(graph_store=store)
     if _graph_extractor is None:
-        from backend.graph.extractor import GraphExtractor  # noqa: PLC0415
-
-        _graph_extractor = GraphExtractor(graph_store=_get_store())
+        from backend.graph.extractor import GraphExtractor
+        _graph_extractor = GraphExtractor(graph_store=_get_layered().base)
     return _graph_extractor
 
 
@@ -143,7 +151,7 @@ async def search_entities(
     iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
     """Search entities by fuzzy name matching, filtered by department ACL."""
-    store = _get_store()
+    store = _get_store(user_id)
     # Over-fetch to compensate for ACL filtering
     results = store.search_entities(query=q, entity_type=type, limit=limit * 3)
     filtered = [e for e in results if _filter_entity_by_department(e, user_id, iam)][:limit]
@@ -170,7 +178,7 @@ async def get_entity(
     iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
     """Return entity details plus its immediate neighbours, filtered by department ACL."""
-    store = _get_store()
+    store = _get_store(user_id)
     entity = store.get_entity(entity_id)
     if entity is None:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
@@ -237,7 +245,7 @@ async def get_entity_subgraph(
     Raises:
         :class:`fastapi.HTTPException`: HTTP 404 when entity not found.
     """
-    store = _get_store()
+    store = _get_store(user_id)
     if store.get_entity(entity_id) is None:
         raise HTTPException(status_code=404, detail=f"Entity '{entity_id}' not found")
 
@@ -256,7 +264,7 @@ async def list_communities(
     Returns:
         Dict with ``communities`` list and ``total`` count.
     """
-    store = _get_store()
+    store = _get_store(user_id)
     communities = store.get_communities()
     return {
         "communities": [
@@ -287,8 +295,11 @@ async def get_stats(
         Dict with node count, edge count, entity type distribution, and
         relation type distribution.
     """
-    store = _get_store()
-    return store.get_stats()
+    store = _get_store(user_id)
+    stats = store.get_stats()
+    layered = _get_layered()
+    stats["layers"] = layered.get_layer_stats(user_id)
+    return stats
 
 
 @router.get("/visualization", summary="전체 그래프 시각화 데이터")
@@ -297,7 +308,7 @@ async def get_visualization(
     iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
     """Return the full graph filtered by department ACL."""
-    store = _get_store()
+    store = _get_store(user_id)
     data = store.to_visualization_data()
 
     # 부서 ACL로 노드/엣지 필터링
@@ -346,11 +357,13 @@ async def build_graph(
 
     from backend.config import settings  # noqa: PLC0415
 
-    extractor = _get_extractor()
+    # 베이스 그래프만 재빌드 (Shared/ 문서 대상)
+    layered = _get_layered()
+    extractor = _get_extractor(layered.base)
     summary = await extractor.build_from_vault(settings.vault_root)
     _log_graph_action(user_id, "build_full", summary)
-    logger.info("Graph rebuilt by user=%s: %s", user_id, summary)
-    return {"status": "completed", **summary}
+    logger.info("Base graph rebuilt by user=%s: %s", user_id, summary)
+    return {"status": "completed", "layer": "base", **summary}
 
 
 @router.post("/build-document", summary="단일 문서 그래프 추가")
@@ -390,11 +403,14 @@ async def build_document(
             detail=f"Document not found: {body.rel_path}",
         )
 
-    extractor = _get_extractor()
+    # 경로에 따라 적절한 레이어에 저장
+    target_store = _get_store_for_write(body.rel_path, user_id)
+    extractor = _get_extractor(target_store)
     entities, relationships = await extractor.extract_from_file(abs_path, body.rel_path)
 
-    # Persist updated graph state
-    _get_store().save()
+    # 해당 레이어 저장
+    target_store.save()
+    layer = "personal" if body.rel_path.strip("/").startswith("Private/") else "base"
 
     _log_graph_action(user_id, "build_document", {
         "source_path": body.rel_path,
@@ -405,6 +421,7 @@ async def build_document(
     return {
         "status": "ok",
         "source_path": body.rel_path,
+        "layer": layer,
         "entities": len(entities),
         "relationships": len(relationships),
     }
@@ -437,7 +454,7 @@ async def graphrag_search(
     """
     from backend.graph.graphrag import GraphRAGEngine  # noqa: PLC0415
 
-    store = _get_store()
+    store = _get_store(user_id)
     user_roles = iam.get_user_roles(user_id)
 
     engine = GraphRAGEngine(graph_store=store, iam_engine=iam)
