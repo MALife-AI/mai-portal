@@ -356,13 +356,26 @@ async def build_graph(
     _require_admin(user_id, iam)
 
     from backend.config import settings  # noqa: PLC0415
+    from backend.graph.builder import get_graph_builder  # noqa: PLC0415
 
     # 베이스 그래프만 재빌드 (Shared/ 문서 대상)
     layered = _get_layered()
     extractor = _get_extractor(layered.base)
     summary = await extractor.build_from_vault(settings.vault_root)
+
+    # 전 버전 인덱싱 (git history 기반)
+    try:
+        builder = get_graph_builder()
+        version_stats = await builder.build_all_versions(settings.vault_root)
+        summary["versions_indexed"] = version_stats["versions_indexed"]
+        if version_stats["errors"]:
+            summary.setdefault("errors", []).extend(version_stats["errors"])
+    except Exception as exc:
+        logger.warning("Version indexing failed (non-fatal): %s", exc)
+        summary["versions_indexed"] = 0
+
     _log_graph_action(user_id, "build_full", summary)
-    logger.info("Base graph rebuilt by user=%s: %s", user_id, summary)
+    logger.info("Base graph rebuilt (with versions) by user=%s: %s", user_id, summary)
     return {"status": "completed", "layer": "base", **summary}
 
 

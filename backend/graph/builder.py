@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
+from git import Repo, InvalidGitRepositoryError
 
 from backend.graph.extractor import GraphExtractor
-from backend.graph.models import Relationship
+from backend.graph.models import Entity, Relationship
 from backend.graph.store import GraphStore
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,123 @@ class GraphBuilder:
         logger.info("GraphBuilder.rebuild: clearing graph and rebuilding from %s", vault_root)
         self._store.clear()
         return await self.build_from_vault(vault_root)
+
+    async def build_all_versions(
+        self,
+        vault_root: Path,
+        max_versions_per_file: int = 10,
+    ) -> dict[str, Any]:
+        """모든 문서의 git 히스토리 버전을 그래프에 인덱싱합니다.
+
+        각 버전의 엔티티에는 version_hash, version_date, version_label 속성이
+        추가되어, 같은 문서의 서로 다른 시점 내용을 구분할 수 있습니다.
+
+        현재(HEAD) 버전은 build_from_vault()에서 이미 처리되므로,
+        이 메서드는 과거 버전만 추가로 인덱싱합니다.
+
+        Args:
+            vault_root: vault 루트 경로.
+            max_versions_per_file: 파일당 최대 과거 버전 수.
+
+        Returns:
+            처리 통계 dict.
+        """
+        try:
+            repo = Repo(vault_root, search_parent_directories=True)
+        except InvalidGitRepositoryError:
+            logger.warning("Not a git repo — skipping version indexing")
+            return {"processed": 0, "versions_indexed": 0, "errors": []}
+
+        md_files = [
+            p for p in vault_root.rglob("*.md")
+            if p.is_file() and not p.name.startswith(".")
+        ]
+
+        total_versions = 0
+        errors: list[str] = []
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
+
+        async def _process_versions(md_file: Path) -> int:
+            rel_path = md_file.relative_to(vault_root).as_posix()
+            versions_added = 0
+
+            async with semaphore:
+                try:
+                    commits = list(repo.iter_commits(paths=rel_path, max_count=max_versions_per_file + 1))
+                except Exception:
+                    return 0
+
+                # 첫 번째(HEAD)는 이미 현재 버전으로 인덱싱됨 → 건너뜀
+                past_commits = commits[1:] if len(commits) > 1 else []
+
+                for commit in past_commits:
+                    try:
+                        content = await asyncio.to_thread(
+                            lambda c=commit: repo.git.show(f"{c.hexsha}:{rel_path}")
+                        )
+                        commit_date = commit.committed_datetime.strftime("%Y-%m-%d")
+                        commit_hash = commit.hexsha[:8]
+                        version_source = f"{rel_path}@{commit_hash}"
+
+                        # 버전별로 엔티티 추출
+                        existing_names = _collect_existing_entity_names(self._store)
+                        entities, relationships = await self._extractor.extract_from_document(
+                            content=content,
+                            source_path=version_source,
+                            existing_entities=existing_names,
+                        )
+
+                        # 버전 메타데이터를 각 엔티티에 주입
+                        for entity in entities:
+                            entity.properties["version_hash"] = commit_hash
+                            entity.properties["version_date"] = commit_date
+                            entity.properties["version_label"] = f"{commit_date} ({commit_hash})"
+                            entity.properties["is_historical"] = True
+                            entity.properties["version_message"] = commit.message.strip()[:100]
+                            self._store.add_entity(entity)
+
+                        for rel in relationships:
+                            rel.properties["version_hash"] = commit_hash
+                            rel.properties["version_date"] = commit_date
+                            self._store.add_relationship(rel)
+
+                        versions_added += 1
+                    except Exception as exc:
+                        errors.append(f"{rel_path}@{commit.hexsha[:8]}: {exc}")
+
+            return versions_added
+
+        results = await asyncio.gather(*[_process_versions(f) for f in md_files])
+        total_versions = sum(results)
+
+        self._store.save()
+
+        stats = {
+            "processed": len(md_files),
+            "versions_indexed": total_versions,
+            "errors": errors,
+        }
+        logger.info("build_all_versions complete: %s", stats)
+        return stats
+
+    async def rebuild_with_versions(self, vault_root: Path) -> dict[str, Any]:
+        """그래프를 클리어하고 현재 + 전체 버전으로 재구축합니다."""
+        logger.info("GraphBuilder.rebuild_with_versions: %s", vault_root)
+        self._store.clear()
+
+        # 1) 현재(HEAD) 버전 인덱싱
+        current_stats = await self.build_from_vault(vault_root)
+
+        # 2) 과거 버전 인덱싱
+        version_stats = await self.build_all_versions(vault_root)
+
+        return {
+            "processed": current_stats["processed"],
+            "entities_added": current_stats["entities_added"],
+            "relationships_added": current_stats["relationships_added"],
+            "versions_indexed": version_stats["versions_indexed"],
+            "errors": current_stats["errors"] + version_stats["errors"],
+        }
 
 
 # ---------------------------------------------------------------------------
