@@ -21,11 +21,16 @@ _registry = SkillRegistry()
 _registry.load_all()
 
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
 class AgentRequest(BaseModel):
     query: str
     thread_id: str | None = None
     server_url: str | None = None
     custom_prompt: str | None = None
+    history: list[HistoryMessage] | None = None
 
     @classmethod
     def validate_server_url(cls, url: str | None) -> str | None:
@@ -67,6 +72,7 @@ async def run_agent(
             thread_id=body.thread_id,
             server_url=validated_url,
             custom_prompt=body.custom_prompt,
+            history=[{"role": m.role, "content": m.content} for m in body.history] if body.history else None,
         ):
             if event.get("type") == "metadata":
                 metadata = event
@@ -112,6 +118,7 @@ async def stream_agent(
             thread_id=body.thread_id,
             server_url=validated_url,
             custom_prompt=body.custom_prompt,
+            history=[{"role": m.role, "content": m.content} for m in body.history] if body.history else None,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

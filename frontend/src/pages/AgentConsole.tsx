@@ -621,6 +621,13 @@ export default function AgentConsole() {
     setHasStreamContent(false)
     setRunningSkills([])
 
+    // 이전 대화 히스토리 수집 (최근 6턴 = user+agent 3쌍)
+    const thread = getActiveThread()
+    const prevMessages = (thread?.messages || [])
+      .filter(m => m.id !== placeholderMsg.id && m.content?.trim())
+      .slice(-6)
+      .map(m => ({ role: m.role === 'agent' ? 'assistant' as const : 'user' as const, content: m.content }))
+
     const tid = threadId
     await agentApi.stream(
       {
@@ -628,6 +635,7 @@ export default function AgentConsole() {
         thread_id: threadId,
         server_url: selectedServerInfo?.url,
         custom_prompt: [globalPrompt, sessionPrompt].filter(Boolean).join('\n') || undefined,
+        history: prevMessages.length > 0 ? prevMessages : undefined,
       },
       {
         onMetadata: (meta) => {

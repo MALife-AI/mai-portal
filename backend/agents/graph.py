@@ -243,6 +243,7 @@ async def invoke_agent_stream(
     thread_id: str | None = None,
     server_url: str | None = None,
     custom_prompt: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ):
     """Unsloth 스타일 auto-healing tool calling + GraphRAG + 스트리밍."""
     import json as _json
@@ -560,8 +561,15 @@ async def invoke_agent_stream(
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": query},
     ]
+    # 이전 대화 히스토리 주입 (최근 턴, 토큰 절약을 위해 내용 축소)
+    if history:
+        for h in history[-6:]:  # 최대 6턴
+            content = h.get("content", "")
+            if len(content) > 300:
+                content = content[:300] + "..."
+            messages.append({"role": h.get("role", "user"), "content": content})
+    messages.append({"role": "user", "content": query})
 
     # ── Auto-healing tool calling loop ────────────────────────────────
     max_iterations = 5
