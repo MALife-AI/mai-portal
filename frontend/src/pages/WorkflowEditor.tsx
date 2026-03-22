@@ -374,7 +374,7 @@ function InputNode({ data, selected }: NodeProps) {
               type="source"
               position={Position.Right}
               id={`out-${f.name}`}
-              style={{ width: 8, height: 8, background: '#34C759', border: '2px solid var(--color-bg-secondary)', right: -4, top: 24 + i * 52 }}
+              style={{ width: 8, height: 8, background: '#34C759', border: '2px solid var(--color-bg-secondary)', right: -4, top: '50%' }}
             />
           </div>
         ))}
