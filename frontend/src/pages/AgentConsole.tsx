@@ -16,8 +16,9 @@ import {
   Terminal,
   MessageSquare,
   RefreshCw,
+  Workflow,
 } from 'lucide-react'
-import { agentApi, type ExecutionStep, type StreamCallbacks } from '@/api/client'
+import { agentApi, type ExecutionStep, type StreamCallbacks, type ClarificationData } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
 import { formatRelativeTime, generateId, cn } from '@/lib/utils'
 import { MarkdownViewer } from '@/components/MarkdownViewer'
@@ -178,7 +179,100 @@ function ExecutionLog({ steps, reasoning }: ExecutionLogProps) {
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message }: { message: AgentMessage }) {
+function ClarificationButtons({
+  data,
+  onSelect,
+}: {
+  data: ClarificationData
+  onSelect: (value: string, displayLabel: string) => void
+}) {
+  const [customInput, setCustomInput] = useState('')
+  const [showCustom, setShowCustom] = useState(false)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-3 space-y-2"
+    >
+      <p className="text-xs font-semibold text-surface-800 mb-2">{data.message}</p>
+      <div className="flex flex-wrap gap-2">
+        {data.options.map((opt, i) => (
+          <button
+            key={i}
+            onClick={() => onSelect(opt.value, opt.label)}
+            className="group relative flex flex-col items-start px-3.5 py-2.5 rounded-lg text-left transition-all hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: 'var(--color-bg-elevated)',
+              border: '1px solid var(--color-border)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+          >
+            <span className="text-xs font-semibold text-surface-900 group-hover:text-gold-500 transition-colors">
+              {opt.label}
+            </span>
+            {opt.description && (
+              <span className="text-2xs text-surface-600 mt-0.5 leading-snug">
+                {opt.description}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {data.allow_custom_input !== false && (
+        <>
+          {!showCustom ? (
+            <button
+              onClick={() => setShowCustom(true)}
+              className="group relative flex flex-col items-start px-3.5 py-2.5 rounded-lg text-left transition-all hover:scale-[1.02] active:scale-[0.98]"
+              style={{
+                background: 'var(--color-bg-elevated)',
+                border: '1px dashed var(--color-border)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+              }}
+            >
+              <span className="text-xs font-semibold text-surface-600 group-hover:text-gold-500 transition-colors">
+                ✏️ 직접 입력
+              </span>
+            </button>
+          ) : (
+            <div
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg"
+              style={{
+                background: 'var(--color-bg-elevated)',
+                border: '1px solid var(--color-border)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+              }}
+            >
+              <input
+                type="text"
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customInput.trim()) {
+                    onSelect(customInput.trim(), customInput.trim())
+                  }
+                }}
+                placeholder="직접 입력하세요..."
+                autoFocus
+                className="flex-1 bg-transparent text-xs text-surface-900 focus:outline-none"
+              />
+              <button
+                onClick={() => customInput.trim() && onSelect(customInput.trim(), customInput.trim())}
+                disabled={!customInput.trim()}
+                className="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors bg-gold-500 text-surface-DEFAULT hover:bg-gold-400 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              >
+                전송
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </motion.div>
+  )
+}
+
+function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onSelectOption?: (value: string, displayLabel: string) => void }) {
   const isUser = message.role === 'user'
   const [showLog, setShowLog] = useState(false)
   const [graphOverlay, setGraphOverlay] = useState<{ focusIndex: number } | null>(null)
@@ -210,15 +304,18 @@ function MessageBubble({ message }: { message: AgentMessage }) {
 
       {/* Content */}
       <div className={cn('max-w-[75%] space-y-2', isUser && 'items-end flex flex-col')}>
-        <div className={cn(isUser ? 'bubble-user' : 'bubble-agent', 'px-4 py-3')}>
-          {isUser ? (
-            <p className="text-sm text-surface-900 leading-relaxed">{message.content}</p>
-          ) : (
-            <div className="text-sm">
-              <MarkdownViewer content={message.content} />
-            </div>
-          )}
-        </div>
+        {/* 에이전트: content가 비어있으면 버블 숨김 (clarification 전용이거나 아직 스트리밍 전) */}
+        {(isUser || message.content?.trim()) && (
+          <div className={cn(isUser ? 'bubble-user' : 'bubble-agent', 'px-4 py-3')}>
+            {isUser ? (
+              <p className="text-sm text-surface-900 leading-relaxed">{message.content}</p>
+            ) : (
+              <div className="text-sm">
+                <MarkdownViewer content={message.content} />
+              </div>
+            )}
+          </div>
+        )}
 
         <div className={cn('flex items-center gap-2', isUser && 'flex-row-reverse')}>
           <span className="text-2xs text-surface-600 font-mono">
@@ -302,6 +399,14 @@ function MessageBubble({ message }: { message: AgentMessage }) {
               )
             })}
           </div>
+        )}
+
+        {/* Clarification buttons */}
+        {!isUser && message.clarification && onSelectOption && (
+          <ClarificationButtons
+            data={message.clarification}
+            onSelect={onSelectOption}
+          />
         )}
 
         {/* Inline execution log */}
@@ -399,6 +504,8 @@ export default function AgentConsole() {
 
   const [query, setQuery] = useState('')
   const [isRunning, setIsRunning] = useState(false)
+  const [hasStreamContent, setHasStreamContent] = useState(false)
+  const [runningSkills, setRunningSkills] = useState<string[]>([])  // 실행 중인 스킬명
   const [showExecSidebar, setShowExecSidebar] = useState(true)
   const [agentUi, setAgentUi] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -417,6 +524,18 @@ export default function AgentConsole() {
   const [loadingStatus, setLoadingStatus] = useState(false)
   // Derived: avoid servers.find() on every render/send
   const selectedServerInfo = servers.find(s => s.id === selectedServer)
+
+  // 워크플로우 목록
+  interface SavedWorkflow { id: string; name: string; nodes: any[]; edges: any[] }
+  const [workflows, setWorkflows] = useState<SavedWorkflow[]>([])
+  const [showWorkflows, setShowWorkflows] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('mai_workflows') || '[]')
+      setWorkflows(saved)
+    } catch { /* ignore */ }
+  }, [])
 
   const fetchServerStatus = useCallback(async () => {
     setLoadingStatus(true)
@@ -456,8 +575,12 @@ export default function AgentConsole() {
   }, [createThread])
 
   async function handleSend() {
-    const trimmedQuery = query.trim()
-    if (!trimmedQuery || isRunning) return
+    sendMessage(query)
+  }
+
+  const sendMessage = useCallback(async (text: string, displayText?: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || isRunning) return
 
     let threadId = activeThreadId
     if (!threadId) {
@@ -467,14 +590,13 @@ export default function AgentConsole() {
     const userMsg: AgentMessage = {
       id: generateId(),
       role: 'user',
-      content: trimmedQuery,
+      content: displayText || trimmed,
       timestamp: new Date().toISOString(),
     }
     addMessageToThread(threadId, userMsg)
     setQuery('')
     setIsRunning(true)
 
-    // 빈 에이전트 메시지를 먼저 추가 (스트리밍으로 채워감)
     const agentMsgId = generateId()
     const placeholderMsg: AgentMessage = {
       id: agentMsgId,
@@ -485,10 +607,12 @@ export default function AgentConsole() {
     }
     addMessageToThread(threadId, placeholderMsg)
     streamContentRef.current = ''
+    setHasStreamContent(false)
+    setRunningSkills([])
 
-    const tid = threadId // capture for callbacks
+    const tid = threadId
     await agentApi.stream(
-      { query: trimmedQuery, thread_id: threadId, server_url: selectedServerInfo?.url },
+      { query: trimmed, thread_id: threadId, server_url: selectedServerInfo?.url },
       {
         onMetadata: (meta) => {
           updateMessageInThread(tid, agentMsgId, (msg) => ({
@@ -501,14 +625,33 @@ export default function AgentConsole() {
         },
         onToken: (token) => {
           streamContentRef.current += token
+          setHasStreamContent(true)
           const content = streamContentRef.current
           updateMessageInThread(tid, agentMsgId, (msg) => ({
             ...msg,
             content,
           }))
         },
+        onClarification: (data) => {
+          // clarification 도착 시 앞서 출력된 reasoning 텍스트 제거
+          streamContentRef.current = ''
+          setHasStreamContent(false)
+          updateMessageInThread(tid, agentMsgId, (msg) => ({
+            ...msg,
+            clarification: data,
+            content: '',
+          }))
+        },
+        onSkillStatus: (data) => {
+          if (data.status === 'running') {
+            setRunningSkills(data.skills)
+          } else {
+            setRunningSkills([])
+          }
+        },
         onDone: () => {
           setIsRunning(false)
+          setRunningSkills([])
         },
         onError: (err) => {
           updateMessageInThread(tid, agentMsgId, (msg) => ({
@@ -520,7 +663,11 @@ export default function AgentConsole() {
         },
       },
     )
-  }
+  }, [isRunning, activeThreadId, createThread, addMessageToThread, updateMessageInThread, selectedServerInfo, toast])
+
+  const handleSelectOption = useCallback((value: string, displayLabel: string) => {
+    sendMessage(value, displayLabel)
+  }, [sendMessage])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -653,11 +800,17 @@ export default function AgentConsole() {
               ) : (
                 <>
                   <AnimatePresence>
-                    {activeThread.messages.map((msg) => (
-                      <MessageBubble key={msg.id} message={msg} />
-                    ))}
+                    {activeThread.messages
+                      .filter((msg) => {
+                        // 에이전트 메시지: content가 비어있고 clarification도 없으면 숨김
+                        if (msg.role === 'agent' && !msg.content?.trim() && !msg.clarification) return false
+                        return true
+                      })
+                      .map((msg) => (
+                        <MessageBubble key={msg.id} message={msg} onSelectOption={handleSelectOption} />
+                      ))}
                   </AnimatePresence>
-                  {isRunning && (
+                  {isRunning && !hasStreamContent && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -670,15 +823,28 @@ export default function AgentConsole() {
                         <Bot size={13} className="text-gold-500" />
                       </div>
                       <div className="bubble-agent px-4 py-3">
-                        <div className="flex gap-1">
-                          {[0, 1, 2].map((i) => (
-                            <span
-                              key={i}
-                              className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce"
-                              style={{ animationDelay: `${i * 150}ms` }}
-                            />
-                          ))}
-                        </div>
+                        {runningSkills.length > 0 ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 size={13} className="animate-spin text-gold-500 shrink-0" />
+                            <span className="text-xs text-surface-800">
+                              <span className="font-semibold text-gold-500">{runningSkills.join(', ')}</span>
+                              {' '}실행 중...
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
+                              {[0, 1, 2].map((i) => (
+                                <span
+                                  key={i}
+                                  className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-bounce"
+                                  style={{ animationDelay: `${i * 150}ms` }}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-2xs text-surface-600">답변 준비 중</span>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}
@@ -739,6 +905,53 @@ export default function AgentConsole() {
                       </button>
                     )
                   })}
+                </div>
+              )}
+
+              {/* Workflow selector */}
+              {workflows.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowWorkflows(v => !v)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-2xs font-mono text-surface-600 hover:text-gold-500 transition-colors"
+                    style={{ border: '1px solid var(--color-border)' }}
+                  >
+                    <Workflow size={12} />
+                    워크플로우
+                    <ChevronDown size={10} className={cn('transition-transform', showWorkflows && 'rotate-180')} />
+                  </button>
+                  <AnimatePresence>
+                    {showWorkflows && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        className="absolute bottom-full mb-1 left-0 z-20 rounded-lg shadow-xl overflow-hidden min-w-[220px]"
+                        style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+                      >
+                        <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                          <p className="text-2xs font-semibold text-surface-600 uppercase tracking-widest">저장된 워크플로우</p>
+                        </div>
+                        {workflows.map(wf => (
+                          <button
+                            key={wf.id}
+                            onClick={() => {
+                              const skillNodes = wf.nodes.filter((n: any) => n.type === 'skill')
+                              const skillNames = skillNodes.map((n: any) => n.data?.label || n.data?.skillData?.skill_name).join(', ')
+                              sendMessage(`[워크플로우: ${wf.name}] 다음 스킬을 순서대로 실행해줘: ${skillNames}`)
+                              setShowWorkflows(false)
+                            }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-surface-200 transition-colors"
+                          >
+                            <p className="text-xs font-semibold text-surface-900">{wf.name}</p>
+                            <p className="text-2xs text-surface-600 mt-0.5">
+                              {wf.nodes.filter((n: any) => n.type === 'skill').length}개 스킬 · {wf.edges.length}개 연결
+                            </p>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
 

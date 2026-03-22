@@ -23,6 +23,7 @@ export interface AgentMessage {
   reasoning?: string
   thread_id?: string
   source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
+  clarification?: import('@/api/client').ClarificationData
 }
 
 export interface AgentThread {

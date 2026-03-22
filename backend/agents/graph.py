@@ -249,6 +249,10 @@ async def invoke_agent_stream(
 
     _thread_id = thread_id or f"{user_id}-{datetime.now(timezone.utc).isoformat()}"
 
+    # GraphRAG 스킬에 현재 사용자 ID 전달 (IAM 권한 체크용)
+    if hasattr(skill_registry, '_set_graphrag_user'):
+        skill_registry._set_graphrag_user(user_id)
+
     # ── GraphRAG 컨텍스트 검색 ────────────────────────────────────────
     source_nodes: list[dict[str, Any]] = []
     graph_context: str = ""
@@ -280,12 +284,16 @@ async def invoke_agent_stream(
                 "type": e.get("entity_type", ""),
                 "description": props.get("description", ""),
                 "source_titles": [
-                    p.split("/")[-1].replace(".md", "")
+                    p.split("/")[-1].replace(".md", "").split("@")[0]
                     for p in e.get("source_paths", [])
                 ],
                 "page_start": props.get("page_start"),
                 "page_end": props.get("page_end"),
                 "effective_date": props.get("effective_date"),
+                "version_hash": props.get("version_hash"),
+                "version_date": props.get("version_date"),
+                "version_label": props.get("version_label"),
+                "is_historical": props.get("is_historical", False),
             })
             if len(source_nodes) >= 5:
                 break
@@ -314,8 +322,48 @@ async def invoke_agent_stream(
     client = AsyncOpenAI(base_url=routed_url, api_key="sk-no-key-required")
     model_name = _settings.vlm_model
 
+    # 내장 도구: ask_user (멀티턴 clarification)
+    ask_user_tool = {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": (
+                "사용자에게 추가 정보를 요청할 때 사용합니다. "
+                "필수 파라미터가 부족하거나 여러 선택지 중 하나를 골라야 할 때 호출하세요. "
+                "options에 선택지 목록을 제공하면 사용자가 버튼으로 선택할 수 있습니다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "사용자에게 보여줄 질문 메시지",
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string", "description": "버튼에 표시할 텍스트"},
+                                "value": {"type": "string", "description": "선택 시 전송할 값"},
+                                "description": {"type": "string", "description": "부가 설명 (선택)"},
+                            },
+                            "required": ["label", "value"],
+                        },
+                        "description": "사용자에게 제시할 선택지 목록",
+                    },
+                    "allow_custom_input": {
+                        "type": "boolean",
+                        "description": "직접 입력 옵션 표시 여부 (기본: true)",
+                    },
+                },
+                "required": ["message", "options"],
+            },
+        },
+    }
+
     # 스킬을 OpenAI tool 형식으로 변환
-    tools = []
+    tools = [ask_user_tool]
     skill_map: dict[str, Any] = {}
     for skill in skill_registry.list_skills():
         tool_def = {
@@ -345,6 +393,8 @@ async def invoke_agent_stream(
 
     # 메시지 구성 — 번호 매긴 출처 + 인라인 인용 지시
     numbered_sources = []
+    has_multiple_versions = False
+    version_docs: dict[str, list[str]] = {}  # doc_name → [version_labels]
     for i, sn in enumerate(source_nodes, 1):
         docs = ", ".join(sn.get("source_titles", []))
         page = ""
@@ -354,25 +404,59 @@ async def invoke_agent_stream(
                 page += f"-{sn['page_end']}"
         eff = sn.get("effective_date", "")
         eff_str = f" [{eff}]" if eff else ""
+        ver = sn.get("version_label", "")
+        ver_str = f" (버전: {ver})" if ver else " (현재 버전)"
         desc = sn.get("description", "")
-        numbered_sources.append(f"[{i}] {sn['name']} — {docs}{page}{eff_str}: {desc}")
+        numbered_sources.append(f"[{i}] {sn['name']} — {docs}{page}{eff_str}{ver_str}: {desc}")
+
+        # 버전 다양성 추적
+        for doc in sn.get("source_titles", []):
+            version_docs.setdefault(doc, []).append(ver or "현재")
+
+    # 같은 문서에 여러 버전이 있는지 체크
+    for doc, vers in version_docs.items():
+        if len(set(vers)) > 1:
+            has_multiple_versions = True
+            break
 
     source_block = "\n".join(numbered_sources) if numbered_sources else ""
 
     system_prompt = (
         "당신은 금융/보험 도메인 전문 어시스턴트입니다. 한국어로 정확하고 친절하게 답변하세요.\n\n"
-        "중요: 답변 시 정보의 출처를 [1], [2] 형태로 인라인 인용하세요.\n"
-        "예: '보험료를 2회 이상 미납하면 계약이 해지될 수 있습니다[1].'\n"
-        "답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요.\n"
-        "약관/규정의 시행일이 표기되어 있으면 해당 날짜를 명시하세요."
+        "## 최우선 규칙: 도구 호출 의무\n"
+        "당신은 도구를 직접 호출하는 주체입니다. 사용자에게 절대로 도구/함수 사용법을 설명하지 마세요.\n"
+        "금지 표현: '~함수를 사용하면', '~를 호출하면', '~코드를 입력하면', '~를 통해 확인할 수 있습니다'\n\n"
+        "## 필수 정보 부족 시: ask_user 도구 호출\n"
+        "도구를 호출하는 데 필수 파라미터(상품코드, 고객번호, 증권번호 등)가 부족하면:\n"
+        "1. 텍스트로 질문하지 말고 반드시 ask_user 도구를 호출하세요.\n"
+        "2. options 배열에 예시 선택지를 제공하세요.\n"
+        "3. 사용자가 선택하면 즉시 해당 도구를 호출하세요.\n\n"
+        "단, 사용자가 상품명/용어/보장항목 등을 이미 언급했다면 ask_user 없이 바로 해당 도구를 호출하세요.\n"
+        "예: '무배당 건강보험 해약환급금' → 바로 get-product-spec(product_name='무배당 건강보험') 호출\n"
+        "예: '해약환급금 알려줘' (상품 미지정) → ask_user로 상품 선택 요청\n\n"
+        "## 문서 버전 규칙\n"
+        "- 참고 출처에 같은 문서의 여러 버전(시점)이 있을 수 있습니다.\n"
+        "- 여러 버전이 감지되면 답변하기 전에 반드시 ask_user 도구로 어떤 시점의 내용을 기준으로 안내할지 물어보세요.\n"
+        "- 예시: ask_user(message='이 약관은 여러 시점의 버전이 있습니다. 어느 시점을 기준으로 안내드릴까요?', "
+        "options=[{label:'2025-01-15 (현재)', value:'현재 버전'}, {label:'2024-06-01', value:'2024-06-01 버전'}])\n"
+        "- 사용자가 특정 날짜나 '최신'을 언급하면 해당 버전의 출처만 인용하세요.\n\n"
+        "## 인용 규칙\n"
+        "- 답변 시 정보의 출처를 [1], [2] 형태로 인라인 인용하세요.\n"
+        "- 답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요.\n"
+        "- 약관/규정의 시행일이 표기되어 있으면 해당 날짜를 명시하세요."
     )
     if user_dept:
         system_prompt += f"\n\n사용자 소속: {user_dept}. 해당 부서에 관련된 사규/매뉴얼이 있으면 우선 참고하세요."
     if source_block:
         system_prompt += f"\n\n참고 출처:\n{source_block}"
+    if has_multiple_versions:
+        system_prompt += (
+            "\n\n⚠️ 주의: 위 출처에 같은 문서의 여러 버전이 포함되어 있습니다. "
+            "반드시 ask_user 도구를 호출하여 사용자에게 어느 시점의 약관/규정을 기준으로 안내할지 먼저 확인하세요."
+        )
     if graph_context:
         system_prompt += (
-            f"\n\n관련 컨텍스트:\n{graph_context[:2500]}"
+            f"\n\n관련 컨텍스트:\n{graph_context[:1000]}"
         )
 
     messages: list[dict[str, Any]] = [
@@ -384,26 +468,33 @@ async def invoke_agent_stream(
     max_iterations = 5
     for _ in range(max_iterations):
         try:
+            logger.info(
+                "LLM request: model=%s, tools=%d, messages=%d",
+                model_name, len(tools), len(messages),
+            )
             response = await client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 tools=tools if tools else None,
                 tool_choice="auto" if tools else None,
-                max_tokens=1024,
-                temperature=0.7,
+                max_tokens=768,
+                temperature=0.6,
                 stream=True,
             )
 
             # 스트리밍 응답 처리
             tool_calls_acc: list[dict[str, Any]] = []
+            text_acc = ""  # 텍스트 누적 (ask_user fallback 파싱용)
+            pending_tokens: list[dict[str, Any]] = []  # 지연 전송 버퍼
             async for chunk in response:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if not delta:
                     continue
 
-                # 텍스트 토큰
+                # 텍스트 토큰 — 즉시 전송하지 않고 버퍼에 누적
                 if delta.content:
-                    yield {"type": "token", "content": delta.content}
+                    text_acc += delta.content
+                    pending_tokens.append({"type": "token", "content": delta.content})
 
                 # tool call 누적
                 if delta.tool_calls:
@@ -419,9 +510,104 @@ async def invoke_agent_stream(
                             if tc.function.arguments:
                                 tool_calls_acc[idx]["arguments"] += tc.function.arguments
 
-            # tool call이 없으면 종료
+            # ── 텍스트에서 ask_user 패턴 fallback 파싱 ──
+            import re as _re
+            _ask_user_pattern = _re.compile(
+                r"ask_user\s*(?:호출|call)?\s*[:：]?\s*message\s*=\s*['\"](.+?)['\"]"
+                r".*?options\s*=\s*\[(.+?)\]",
+                _re.DOTALL,
+            )
+            text_match = _ask_user_pattern.search(text_acc) if text_acc else None
+
+            if text_match and not tool_calls_acc:
+                # LLM이 텍스트로 ask_user를 출력한 경우 → clarification으로 변환
+                logger.info("ask_user detected in text output (fallback parsing)")
+                msg = text_match.group(1).strip()
+                opts_raw = text_match.group(2).strip()
+
+                # options 파싱: {label:'...', value:'...'} 패턴
+                opt_pattern = _re.compile(
+                    r"\{[^}]*label\s*[:：]\s*['\"]([^'\"]+)['\"]"
+                    r"[^}]*value\s*[:：]\s*['\"]([^'\"]+)['\"][^}]*\}"
+                )
+                options = [
+                    {"label": m.group(1), "value": m.group(2)}
+                    for m in opt_pattern.finditer(opts_raw)
+                ]
+
+                yield {
+                    "type": "clarification",
+                    "message": msg,
+                    "options": options,
+                    "allow_custom_input": True,
+                }
+                yield {"type": "done"}
+                return
+
+            # tool call도 없고 텍스트 fallback도 없으면 → 텍스트 토큰 전송
             if not tool_calls_acc:
+                for tok in pending_tokens:
+                    yield tok
+                logger.info("No tool calls detected — finishing stream")
                 break
+
+            logger.info(
+                "Tool calls detected: %s",
+                [tc["name"] for tc in tool_calls_acc],
+            )
+
+            # ── ask_user 내장 도구 감지 → clarification 이벤트 ──
+            ask_user_calls = [tc for tc in tool_calls_acc if tc["name"] == "ask_user"]
+            if ask_user_calls:
+                tc = ask_user_calls[0]
+                try:
+                    args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
+                except _json.JSONDecodeError:
+                    args = {}
+                yield {
+                    "type": "clarification",
+                    "message": args.get("message", "추가 정보가 필요합니다."),
+                    "options": args.get("options", []),
+                    "allow_custom_input": args.get("allow_custom_input", True),
+                }
+                yield {"type": "done"}
+                return  # 사용자 응답 대기 — 루프 종료
+
+            # 스킬 한글 이름 매핑
+            _SKILL_DISPLAY_NAMES: dict[str, str] = {
+                "get-product-spec": "상품 사양 조회",
+                "get-coverage": "보장 내용 조회",
+                "explain-term": "약관 용어 설명",
+                "compare-riders": "특약 비교",
+                "search-regulation": "규정/약관 검색",
+                "underwriting": "언더라이팅 사전심사",
+                "multi-source-rag": "멀티소스 검색",
+                "graphrag-search": "지식그래프 검색",
+                "vault-search": "문서 검색",
+                "vault-read": "문서 읽기",
+                "insurance-calculator": "보험료 계산",
+                "document-summary": "문서 요약",
+                "translate": "번역",
+                "draft-email": "이메일 초안",
+                "calculate-simple": "간단 계산",
+                "translator": "번역",
+                "check-claim-status": "청구 상태 조회",
+                "validate-customer-info": "고객 정보 검증",
+                "send-notification": "알림 발송",
+                "generate-report": "리포트 생성",
+                "skill-maker": "스킬 생성",
+                "calculate-insurance-premium": "보험료 산출",
+                "compound-interest": "복리 계산기",
+            }
+
+            def _display_name(name: str) -> str:
+                if name in _SKILL_DISPLAY_NAMES:
+                    return _SKILL_DISPLAY_NAMES[name]
+                # 스킬 레지스트리에서 display_name 조회
+                skill_meta = skill_registry.get_skill(name)
+                if skill_meta and skill_meta.get("display_name"):
+                    return skill_meta["display_name"]
+                return name
 
             # tool call 실행
             messages.append({
@@ -436,6 +622,14 @@ async def invoke_agent_stream(
                 ],
             })
 
+            # 실행 시작 알림
+            running_names = [_display_name(tc["name"]) for tc in tool_calls_acc]
+            yield {
+                "type": "skill_status",
+                "status": "running",
+                "skills": running_names,
+            }
+
             for tc in tool_calls_acc:
                 try:
                     tool = skill_registry.get_tool(tc["name"])
@@ -444,9 +638,28 @@ async def invoke_agent_stream(
                         result = await tool.ainvoke(args)
                         result_str = str(result)[:2000]
                     else:
-                        result_str = f"Tool '{tc['name']}' not found"
+                        result_str = (
+                            f"'{_display_name(tc['name'])}' 스킬을 사용할 수 없습니다. "
+                            "이미 보유한 지식그래프 정보를 활용하여 답변해 주세요."
+                        )
                 except Exception as exc:
-                    result_str = f"Tool error: {exc}"
+                    logger.warning("Skill %s failed: %s", tc["name"], exc)
+                    err_msg = str(exc)
+                    if "401" in err_msg or "403" in err_msg or "Unauthorized" in err_msg:
+                        result_str = (
+                            f"'{_display_name(tc['name'])}' 외부 시스템에 연결할 수 없습니다 (인증 오류). "
+                            "이미 보유한 지식그래프 정보를 활용하여 답변해 주세요."
+                        )
+                    elif "ConnectError" in err_msg or "ConnectionRefused" in err_msg or "timeout" in err_msg.lower():
+                        result_str = (
+                            f"'{_display_name(tc['name'])}' 외부 시스템에 연결할 수 없습니다 (서버 오프라인). "
+                            "이미 보유한 지식그래프 정보를 활용하여 답변해 주세요."
+                        )
+                    else:
+                        result_str = (
+                            f"'{_display_name(tc['name'])}' 실행 중 오류가 발생했습니다. "
+                            "이미 보유한 지식그래프 정보를 활용하여 답변해 주세요."
+                        )
 
                 messages.append({
                     "role": "tool",
@@ -455,11 +668,16 @@ async def invoke_agent_stream(
                     "content": result_str,
                 })
 
-            yield {"type": "token", "content": f"\n\n> 🔧 {', '.join(tc['name'] for tc in tool_calls_acc)} 실행 완료\n\n"}
+            # 실행 완료 알림
+            yield {
+                "type": "skill_status",
+                "status": "done",
+                "skills": running_names,
+            }
 
         except Exception as exc:
-            logger.error("Tool calling loop error: %s", exc)
-            yield {"type": "token", "content": f"\n\n오류: {exc}"}
+            logger.error("Tool calling loop error: %s", exc, exc_info=True)
+            yield {"type": "token", "content": "\n\n죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
             break
 
     yield {"type": "done"}

@@ -246,6 +246,18 @@ export interface AgentResponse {
   thread_id: string
 }
 
+export interface ClarificationOption {
+  label: string
+  value: string
+  description?: string
+}
+
+export interface ClarificationData {
+  message: string
+  options: ClarificationOption[]
+  allow_custom_input: boolean
+}
+
 export interface StreamCallbacks {
   onToken: (token: string) => void
   onMetadata: (meta: {
@@ -254,6 +266,8 @@ export interface StreamCallbacks {
     reasoning?: string
     source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
   }) => void
+  onClarification?: (data: ClarificationData) => void
+  onSkillStatus?: (data: { status: 'running' | 'done'; skills: string[] }) => void
   onDone: () => void
   onError: (err: string) => void
 }
@@ -293,6 +307,7 @@ export const agentApi = {
 
     const decoder = new TextDecoder()
     let buffer = ''
+    let doneEmitted = false
 
     while (true) {
       const { done, value } = await reader.read()
@@ -310,15 +325,24 @@ export const agentApi = {
             callbacks.onMetadata(event)
           } else if (event.type === 'token') {
             callbacks.onToken(event.content)
+          } else if (event.type === 'clarification') {
+            callbacks.onClarification?.(event)
+          } else if (event.type === 'skill_status') {
+            callbacks.onSkillStatus?.(event)
           } else if (event.type === 'done') {
-            callbacks.onDone()
+            if (!doneEmitted) {
+              doneEmitted = true
+              callbacks.onDone()
+            }
           }
         } catch {
           // skip malformed lines
         }
       }
     }
-    callbacks.onDone()
+    if (!doneEmitted) {
+      callbacks.onDone()
+    }
   },
 }
 
