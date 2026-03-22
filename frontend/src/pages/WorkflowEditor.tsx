@@ -178,6 +178,7 @@ function GraphSearchField({
   const [open, setOpen] = useState(false)
   const [selectedEntity, setSelectedEntity] = useState<GraphEntity | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const abortRef = useRef<AbortController>()
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   // 외부 클릭 시 드롭다운 닫기
@@ -207,17 +208,22 @@ function GraphSearchField({
       return
     }
     debounceRef.current = setTimeout(async () => {
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
       setLoading(true)
       try {
         const uid = getUserId()
         const r = await fetch(`${API}/api/v1/graph/entities?q=${encodeURIComponent(q)}&limit=8`, {
           headers: { 'X-User-Id': uid },
+          signal: controller.signal,
         })
+        if (!r.ok) { setResults([]); return }
         const d = await r.json()
         setResults(d.entities || [])
         setOpen(true)
       } catch {
-        setResults([])
+        if (!controller.signal.aborted) setResults([])
       }
       setLoading(false)
     }, 300)

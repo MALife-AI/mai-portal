@@ -566,7 +566,7 @@ export default function AgentConsole() {
     if (isRunning) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  })
+  }, [isRunning, hasStreamContent])
 
   const handleNewThread = useCallback(() => {
     createThread()

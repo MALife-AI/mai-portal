@@ -1521,8 +1521,9 @@ function SharedDocsTab() {
       })
       toast.success('문서 삭제', path.split('/').pop() || path)
       if (selectedFile === path) { setSelectedFile(null); setVersions([]) }
-      selectedPaths.delete(path)
-      setSelectedPaths(new Set(selectedPaths))
+      const next = new Set(selectedPaths)
+      next.delete(path)
+      setSelectedPaths(next)
       loadFiles()
     } catch (err) {
       toast.error('삭제 실패', String(err))
