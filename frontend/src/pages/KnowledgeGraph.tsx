@@ -45,6 +45,7 @@ const ENTITY_COLORS: Record<string, string> = {
   actuarial: '#1ABC9C',
   image: '#E91E63',
   table: '#00BCD4',
+  fact: '#78909C',
 }
 
 function entityColor(type: string | undefined): string {

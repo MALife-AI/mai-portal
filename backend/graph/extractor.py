@@ -491,48 +491,90 @@ class GraphExtractor:
                         async with sem:
                             try:
                                 result = await processor.analyze_image(img_path)
-                                # 이미지에서 추출한 정보를 엔티티로
                                 caption = result.get("caption", "") or img_path.stem
                                 img_type = result.get("type", "diagram")
                                 table_md = result.get("markdown_table", "")
 
                                 rel_path = "/" + img_path.relative_to(vault_root).as_posix()
-                                parent_doc = img_path.parent.name  # assets/{doc_name}/
+                                parent_doc = img_path.parent.name
+                                source = [f"/assets/{parent_doc}/{img_path.name}"]
 
-                                # 표는 table 엔티티로, 나머지는 image 엔티티로
                                 if img_type == "table" and table_md:
-                                    etype = "table"
-                                    ename = f"표: {parent_doc}" if parent_doc else f"표: {img_path.stem}"
+                                    # ── 표: 팩트 단위로 분해하여 저장 ──
+                                    table_entity = Entity(
+                                        id=f"tbl_{img_path.stem}",
+                                        name=f"표: {parent_doc}" if parent_doc else f"표: {img_path.stem}",
+                                        entity_type="table",
+                                        properties={
+                                            "image_path": rel_path,
+                                            "raw_markdown": table_md[:800],
+                                            "parent_document": parent_doc,
+                                        },
+                                        source_paths=source,
+                                        mentions=1,
+                                    )
+                                    self._store.add_entity(table_entity)
+
+                                    # LLM으로 표 팩트 분해
+                                    try:
+                                        facts = await self._decompose_table(table_md, parent_doc)
+                                        for fact in facts:
+                                            fact_entity = Entity(
+                                                id=f"fact_{img_path.stem}_{fact['key'][:30].replace(' ','_')}",
+                                                name=fact["key"],
+                                                entity_type="fact",
+                                                properties={
+                                                    "value": fact["value"],
+                                                    "context": fact.get("context", ""),
+                                                    "parent_table": f"tbl_{img_path.stem}",
+                                                    "parent_document": parent_doc,
+                                                },
+                                                source_paths=source,
+                                                mentions=1,
+                                            )
+                                            self._store.add_entity(fact_entity)
+                                            self._store.add_relationship(Relationship(
+                                                source_id=f"tbl_{img_path.stem}",
+                                                target_id=fact_entity.id,
+                                                relation_type="contains",
+                                                source_path=rel_path,
+                                            ))
+                                    except Exception as exc:
+                                        logger.debug("Table decomposition failed: %s", exc)
+
+                                    if parent_doc:
+                                        self._store.add_relationship(Relationship(
+                                            source_id=f"tbl_{img_path.stem}",
+                                            target_id=parent_doc,
+                                            relation_type="belongs_to",
+                                            source_path=rel_path,
+                                        ))
+                                    return table_entity
+
                                 else:
-                                    etype = "image"
-                                    ename = caption[:80] if caption else img_path.stem
+                                    # ── 이미지: 캡션으로 저장 ──
+                                    entity = Entity(
+                                        id=f"img_{img_path.stem}",
+                                        name=caption[:80] if caption else img_path.stem,
+                                        entity_type="image",
+                                        properties={
+                                            "image_path": rel_path,
+                                            "caption": caption[:200],
+                                            "parent_document": parent_doc,
+                                        },
+                                        source_paths=source,
+                                        mentions=1,
+                                    )
+                                    self._store.add_entity(entity)
+                                    if parent_doc:
+                                        self._store.add_relationship(Relationship(
+                                            source_id=entity.id,
+                                            target_id=parent_doc,
+                                            relation_type="belongs_to",
+                                            source_path=rel_path,
+                                        ))
+                                    return entity
 
-                                entity = Entity(
-                                    id=f"{'tbl' if etype == 'table' else 'img'}_{img_path.stem}",
-                                    name=ename,
-                                    entity_type=etype,
-                                    properties={
-                                        "image_path": rel_path,
-                                        "content": table_md[:800] if table_md else "",
-                                        "caption": caption[:200],
-                                        "parent_document": parent_doc,
-                                        "file_name": img_path.name,
-                                    },
-                                    source_paths=[f"/assets/{parent_doc}/{img_path.name}"],
-                                    mentions=1,
-                                )
-                                self._store.add_entity(entity)
-
-                                # 부모 문서와의 관계
-                                if parent_doc:
-                                    self._store.add_relationship(Relationship(
-                                        source_id=f"img_{img_path.stem}",
-                                        target_id=parent_doc,
-                                        relation_type="belongs_to",
-                                        source_path=rel_path,
-                                    ))
-
-                                return entity
                             except Exception as exc:
                                 logger.debug("Image labeling failed for %s: %s", img_path.name, exc)
                                 return None
@@ -612,6 +654,43 @@ class GraphExtractor:
         except Exception as exc:
             logger.error("OpenAI call failed: %s", exc)
             return {"entities": [], "relationships": []}
+
+    _TABLE_DECOMPOSE_PROMPT = (
+        "다음 마크다운 표를 분석하여 개별 팩트(key-value)로 분해하세요.\n"
+        "표의 헤더가 상단인지 좌측인지 자동 판별하세요.\n"
+        "머지 셀이나 서브헤더가 있으면 컨텍스트를 포함하세요.\n\n"
+        "표:\n{table}\n\n"
+        "문서: {doc_name}\n\n"
+        "JSON 배열로만 응답:\n"
+        '[{{"key": "항목명 (구체적으로)", "value": "값", "context": "상위 구분/조건"}}]\n'
+        "예: [{{"key": "1종 암진단금", "value": "5,000만원", "context": "무배당 건강보험"}}]"
+    )
+
+    async def _decompose_table(self, table_md: str, doc_name: str) -> list[dict[str, str]]:
+        """마크다운 표를 LLM으로 분해하여 팩트 리스트를 반환합니다."""
+        prompt = self._TABLE_DECOMPOSE_PROMPT.format(
+            table=table_md[:600],
+            doc_name=doc_name,
+        )
+
+        try:
+            if self._use_wrapper:
+                result = await self._call_claude_wrapper(prompt)
+            else:
+                llm = self._get_llm()
+                response = await llm.ainvoke([{"role": "user", "content": prompt}])
+                raw = response.content if hasattr(response, "content") else str(response)
+                # JSON 배열 파싱
+                import re
+                json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                    if isinstance(result, list):
+                        return result
+                return []
+        except Exception as exc:
+            logger.debug("Table decompose LLM failed: %s", exc)
+            return []
 
     def _build_graph_objects(
         self,
