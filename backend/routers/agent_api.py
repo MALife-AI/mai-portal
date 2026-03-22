@@ -25,6 +25,7 @@ class AgentRequest(BaseModel):
     query: str
     thread_id: str | None = None
     server_url: str | None = None
+    custom_prompt: str | None = None
 
     @classmethod
     def validate_server_url(cls, url: str | None) -> str | None:
@@ -65,6 +66,7 @@ async def run_agent(
             skill_registry=_registry,
             thread_id=body.thread_id,
             server_url=validated_url,
+            custom_prompt=body.custom_prompt,
         ):
             if event.get("type") == "metadata":
                 metadata = event
@@ -109,6 +111,7 @@ async def stream_agent(
             skill_registry=_registry,
             thread_id=body.thread_id,
             server_url=validated_url,
+            custom_prompt=body.custom_prompt,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

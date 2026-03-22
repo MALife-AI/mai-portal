@@ -242,6 +242,7 @@ async def invoke_agent_stream(
     skill_registry: SkillRegistry,
     thread_id: str | None = None,
     server_url: str | None = None,
+    custom_prompt: str | None = None,
 ):
     """Unsloth 스타일 auto-healing tool calling + GraphRAG + 스트리밍."""
     import json as _json
@@ -362,8 +363,64 @@ async def invoke_agent_stream(
         },
     }
 
+    # 내장 도구: save_memory (대화 중 중요 정보 저장)
+    save_memory_tool = {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": (
+                "대화 중 중요한 정보를 기억합니다. "
+                "고객 정보, 상품 선택, 계산 결과 등 이후 대화에서 참조해야 할 내용을 저장하세요. "
+                "예: 고객이 '무배당 건강보험 가입 중'이라고 했으면 저장."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "한 줄 요약 (예: '고객 무배당 건강보험 가입 중')",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "상세 내용",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "분류: customer_info, product_choice, calculation, context",
+                    },
+                },
+                "required": ["summary", "content"],
+            },
+        },
+    }
+
+    # 내장 도구: recall_memory (저장된 기억 조회)
+    recall_memory_tool = {
+        "type": "function",
+        "function": {
+            "name": "recall_memory",
+            "description": (
+                "이 대화에서 이전에 저장한 기억을 조회합니다. "
+                "keyword를 지정하면 관련 기억만 검색하고, 없으면 전체 목록을 반환합니다."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "검색할 키워드 (비우면 전체 목록)",
+                    },
+                },
+            },
+        },
+    }
+
+    # 세션 메모리 초기화
+    from backend.agents.session_memory import SessionMemory
+    session_mem = SessionMemory(_thread_id)
+
     # 스킬을 OpenAI tool 형식으로 변환
-    tools = [ask_user_tool]
+    tools = [ask_user_tool, save_memory_tool, recall_memory_tool]
     skill_map: dict[str, Any] = {}
     for skill in skill_registry.list_skills():
         tool_def = {
@@ -429,11 +486,27 @@ async def invoke_agent_stream(
         "## 필수 정보 부족 시: ask_user 도구 호출\n"
         "도구를 호출하는 데 필수 파라미터(상품코드, 고객번호, 증권번호 등)가 부족하면:\n"
         "1. 텍스트로 질문하지 말고 반드시 ask_user 도구를 호출하세요.\n"
-        "2. options 배열에 예시 선택지를 제공하세요.\n"
-        "3. 사용자가 선택하면 즉시 해당 도구를 호출하세요.\n\n"
-        "단, 사용자가 상품명/용어/보장항목 등을 이미 언급했다면 ask_user 없이 바로 해당 도구를 호출하세요.\n"
-        "예: '무배당 건강보험 해약환급금' → 바로 get-product-spec(product_name='무배당 건강보험') 호출\n"
-        "예: '해약환급금 알려줘' (상품 미지정) → ask_user로 상품 선택 요청\n\n"
+        "2. options에는 반드시 실제 선택 가능한 구체적 값을 넣으세요.\n"
+        "   - 좋은 예: [{label:'무배당 건강보험', value:'무배당 건강보험'}, {label:'종합보험 플러스', value:'종합보험 플러스'}]\n"
+        "   - 나쁜 예: [{label:'상품명 입력', value:'product_name'}, {label:'상품코드 입력', value:'product_code'}]\n"
+        "3. 참고 출처에 있는 엔티티명을 options으로 활용하세요.\n"
+        "4. 구체적 선택지를 제공할 수 없으면 options를 빈 배열로 두고 allow_custom_input=true로 설정하세요.\n"
+        "   그러면 사용자에게 바로 입력 필드가 표시됩니다.\n"
+        "5. 사용자가 선택/입력하면 즉시 해당 도구를 호출하세요.\n\n"
+        "## 질문 의도 분류\n"
+        "사용자 질문을 먼저 분류한 뒤 적절한 도구를 호출하세요:\n\n"
+        "**정의/개념 질문** (~이 뭐야, ~이 뭔지, ~란, ~의 의미, ~설명해줘):\n"
+        "→ explain-term 바로 호출. 상품 정보 불필요. ask_user 하지 마세요.\n"
+        "예: '해약환급금이 뭐야?' → explain-term(term='해약환급금')\n"
+        "예: '보험계약대출이란?' → explain-term(term='보험계약대출')\n\n"
+        "**구체적 조회 질문** (~얼마야, ~받을 수 있어, ~계산해줘, ~조회해줘, ~내 보험):\n"
+        "→ 상품/고객 정보가 필요. 이미 언급했으면 바로 호출, 없으면 ask_user.\n"
+        "예: '무배당 건강보험 해약환급금 얼마야?' → get-product-spec(product_name='무배당 건강보험')\n"
+        "예: '해약환급금 얼마야?' (상품 미지정) → ask_user로 상품 선택\n\n"
+        "**비교/분석 질문** (~비교해줘, ~차이, ~뭐가 나아):\n"
+        "→ compare-riders 또는 get-coverage 호출\n\n"
+        "**규정/절차 질문** (~규정, ~절차, ~조건, ~방법, ~할 수 있어):\n"
+        "→ search-regulation 호출\n\n"
         "## 문서 버전 규칙\n"
         "- 참고 출처에 같은 문서의 여러 버전(시점)이 있을 수 있습니다.\n"
         "- 여러 버전이 감지되면 답변하기 전에 반드시 ask_user 도구로 어떤 시점의 내용을 기준으로 안내할지 물어보세요.\n"
@@ -459,6 +532,20 @@ async def invoke_agent_stream(
             f"\n\n관련 컨텍스트:\n{graph_context[:1000]}"
         )
 
+    # 세션 메모리 주입
+    memory_context = session_mem.get_context_summary(max_entries=5)
+    if memory_context:
+        system_prompt += f"\n\n{memory_context}"
+        system_prompt += (
+            "\n\n위는 이 대화에서 이전에 기억한 정보입니다. 답변 시 참고하세요. "
+            "대화 중 새로운 중요 정보(고객 정보, 상품 선택, 조건 등)가 나오면 save_memory로 저장하세요."
+        )
+
+    # 사용자 커스텀 프롬프트 주입 (글자수 제한 200자)
+    if custom_prompt:
+        truncated = custom_prompt[:200]
+        system_prompt += f"\n\n[사용자 지시사항]\n{truncated}"
+
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": query},
@@ -466,28 +553,38 @@ async def invoke_agent_stream(
 
     # ── Auto-healing tool calling loop ────────────────────────────────
     max_iterations = 5
+    _is_continuation = False
     for _ in range(max_iterations):
         try:
+            # continuation 시에는 tools 없이 텍스트만 생성
+            _use_tools = tools if (tools and not _is_continuation) else None
             logger.info(
-                "LLM request: model=%s, tools=%d, messages=%d",
-                model_name, len(tools), len(messages),
+                "LLM request: model=%s, tools=%d, messages=%d, continuation=%s",
+                model_name, len(tools), len(messages), _is_continuation,
             )
             response = await client.chat.completions.create(
                 model=model_name,
                 messages=messages,
-                tools=tools if tools else None,
-                tool_choice="auto" if tools else None,
+                tools=_use_tools,
+                tool_choice="auto" if _use_tools else None,
                 max_tokens=768,
                 temperature=0.6,
                 stream=True,
             )
+            _is_continuation = False
 
             # 스트리밍 응답 처리
             tool_calls_acc: list[dict[str, Any]] = []
             text_acc = ""  # 텍스트 누적 (ask_user fallback 파싱용)
             pending_tokens: list[dict[str, Any]] = []  # 지연 전송 버퍼
+            finish_reason: str | None = None
             async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
+                choice = chunk.choices[0] if chunk.choices else None
+                if not choice:
+                    continue
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta
                 if not delta:
                     continue
 
@@ -548,6 +645,15 @@ async def invoke_agent_stream(
             if not tool_calls_acc:
                 for tok in pending_tokens:
                     yield tok
+
+                # finish_reason이 "length"면 답변이 잘린 것 → 이어서 생성
+                if finish_reason == "length" and text_acc:
+                    logger.info("Response truncated (finish_reason=length) — continuing")
+                    messages.append({"role": "assistant", "content": text_acc})
+                    messages.append({"role": "user", "content": "이어서 답변해 주세요."})
+                    _is_continuation = True
+                    continue  # 루프 재진입 → LLM 재호출 (tools 없이)
+
                 logger.info("No tool calls detected — finishing stream")
                 break
 
@@ -572,6 +678,53 @@ async def invoke_agent_stream(
                 }
                 yield {"type": "done"}
                 return  # 사용자 응답 대기 — 루프 종료
+
+            # ── 메모리 도구 처리 (save_memory / recall_memory) ──
+            memory_calls = [tc for tc in tool_calls_acc if tc["name"] in ("save_memory", "recall_memory")]
+            non_memory_calls = [tc for tc in tool_calls_acc if tc["name"] not in ("save_memory", "recall_memory", "ask_user")]
+
+            if memory_calls:
+                for mc in memory_calls:
+                    try:
+                        args = _json.loads(mc["arguments"]) if mc["arguments"] else {}
+                    except _json.JSONDecodeError:
+                        args = {}
+
+                    if mc["name"] == "save_memory":
+                        result = session_mem.save(
+                            summary=args.get("summary", "메모"),
+                            content=args.get("content", ""),
+                            category=args.get("category", "general"),
+                        )
+                        tool_result = f"기억 저장 완료: #{result['id']} {result['summary']}"
+                    else:  # recall_memory
+                        keyword = args.get("keyword", "")
+                        if keyword:
+                            tool_result = session_mem.recall_by_keyword(keyword)
+                        else:
+                            tool_result = session_mem.recall_all()
+
+                    # assistant message에 tool_call을 넣고 tool result 추가
+                    messages.append({
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": mc["id"],
+                            "type": "function",
+                            "function": {"name": mc["name"], "arguments": mc["arguments"]},
+                        }],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": mc["id"],
+                        "name": mc["name"],
+                        "content": tool_result[:500],
+                    })
+
+                # 메모리 도구만 호출된 경우 → 루프 재진입하여 답변 생성
+                if not non_memory_calls:
+                    continue
+                # 메모리 + 다른 스킬도 함께 호출된 경우 → 다른 스킬은 아래에서 처리
+                tool_calls_acc = non_memory_calls
 
             # 스킬 한글 이름 매핑
             _SKILL_DISPLAY_NAMES: dict[str, str] = {
@@ -598,6 +751,8 @@ async def invoke_agent_stream(
                 "skill-maker": "스킬 생성",
                 "calculate-insurance-premium": "보험료 산출",
                 "compound-interest": "복리 계산기",
+                "save_memory": "기억 저장",
+                "recall_memory": "기억 조회",
             }
 
             def _display_name(name: str) -> str:

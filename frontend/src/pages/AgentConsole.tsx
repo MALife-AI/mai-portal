@@ -17,6 +17,7 @@ import {
   MessageSquare,
   RefreshCw,
   Workflow,
+  Settings2,
 } from 'lucide-react'
 import { agentApi, type ExecutionStep, type StreamCallbacks, type ClarificationData } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
@@ -187,7 +188,8 @@ function ClarificationButtons({
   onSelect: (value: string, displayLabel: string) => void
 }) {
   const [customInput, setCustomInput] = useState('')
-  const [showCustom, setShowCustom] = useState(false)
+  // options가 비어있으면 바로 입력 필드 표시
+  const [showCustom, setShowCustom] = useState(data.options.length === 0)
 
   return (
     <motion.div
@@ -505,6 +507,12 @@ export default function AgentConsole() {
   const [query, setQuery] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [hasStreamContent, setHasStreamContent] = useState(false)
+
+  // 커스텀 프롬프트
+  const [globalPrompt, setGlobalPrompt] = useState(() => localStorage.getItem('mai_global_prompt') || '')
+  const [sessionPrompt, setSessionPrompt] = useState('')
+  const [showPromptSettings, setShowPromptSettings] = useState(false)
+  const PROMPT_MAX_LENGTH = 200
   const [runningSkills, setRunningSkills] = useState<string[]>([])  // 실행 중인 스킬명
   const [showExecSidebar, setShowExecSidebar] = useState(true)
   const [agentUi, setAgentUi] = useState<any>(null)
@@ -612,7 +620,12 @@ export default function AgentConsole() {
 
     const tid = threadId
     await agentApi.stream(
-      { query: trimmed, thread_id: threadId, server_url: selectedServerInfo?.url },
+      {
+        query: trimmed,
+        thread_id: threadId,
+        server_url: selectedServerInfo?.url,
+        custom_prompt: [globalPrompt, sessionPrompt].filter(Boolean).join('\n') || undefined,
+      },
       {
         onMetadata: (meta) => {
           updateMessageInThread(tid, agentMsgId, (msg) => ({
@@ -748,14 +761,72 @@ export default function AgentConsole() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => setShowExecSidebar((v) => !v)}
-            className="btn-secondary flex items-center gap-1.5 text-xs py-1"
-          >
-            <Terminal size={12} />
-            {showExecSidebar ? '로그 숨기기' : '실행 로그'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowPromptSettings((v) => !v)}
+              className={cn('btn-secondary flex items-center gap-1.5 text-xs py-1', showPromptSettings && 'ring-1 ring-gold-500/50')}
+            >
+              <Settings2 size={12} />
+              프롬프트
+            </button>
+            <button
+              onClick={() => setShowExecSidebar((v) => !v)}
+              className="btn-secondary flex items-center gap-1.5 text-xs py-1"
+            >
+              <Terminal size={12} />
+              {showExecSidebar ? '로그 숨기기' : '실행 로그'}
+            </button>
+          </div>
         </div>
+
+        {/* 프롬프트 설정 패널 */}
+        <AnimatePresence>
+          {showPromptSettings && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+            >
+              <div className="px-5 py-3 space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-2xs font-semibold text-surface-600 uppercase tracking-widest">글로벌 프롬프트</label>
+                    <span className="text-2xs text-surface-500 font-mono">{globalPrompt.length}/{PROMPT_MAX_LENGTH}</span>
+                  </div>
+                  <textarea
+                    value={globalPrompt}
+                    onChange={(e) => {
+                      const v = e.target.value.slice(0, PROMPT_MAX_LENGTH)
+                      setGlobalPrompt(v)
+                      localStorage.setItem('mai_global_prompt', v)
+                    }}
+                    placeholder="모든 대화에 적용되는 지시사항 (예: 항상 표 형식으로 답변해줘)"
+                    rows={2}
+                    className="w-full bg-transparent text-xs text-surface-900 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gold-500/50 resize-none"
+                    style={{ border: '1px solid var(--color-border)' }}
+                    maxLength={PROMPT_MAX_LENGTH}
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-2xs font-semibold text-surface-600 uppercase tracking-widest">이 대화 프롬프트</label>
+                    <span className="text-2xs text-surface-500 font-mono">{sessionPrompt.length}/{PROMPT_MAX_LENGTH}</span>
+                  </div>
+                  <textarea
+                    value={sessionPrompt}
+                    onChange={(e) => setSessionPrompt(e.target.value.slice(0, PROMPT_MAX_LENGTH))}
+                    placeholder="이 대화에만 적용 (예: 40세 남성 기준으로 안내해줘)"
+                    rows={2}
+                    className="w-full bg-transparent text-xs text-surface-900 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gold-500/50 resize-none"
+                    style={{ border: '1px solid var(--color-border)' }}
+                    maxLength={PROMPT_MAX_LENGTH}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="flex flex-1 overflow-hidden">
           {/* Messages */}

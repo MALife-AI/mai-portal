@@ -35,9 +35,10 @@ export function TaskBar() {
 
   useEffect(() => {
     fetchTasks()
-    // 활성 태스크가 있을 때만 빠르게 폴링
+    // 활성 태스크가 있을 때만 폴링, 없으면 멈춤
     const hasActive = tasks.some((t) => t.status === 'running' || t.status === 'pending')
-    const interval = setInterval(fetchTasks, hasActive ? 2000 : 10000)
+    if (!hasActive) return
+    const interval = setInterval(fetchTasks, 2000)
     return () => clearInterval(interval)
   }, [fetchTasks, tasks.length])
 

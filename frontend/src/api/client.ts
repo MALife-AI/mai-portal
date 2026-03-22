@@ -280,7 +280,7 @@ export const agentApi = {
     }),
 
   stream: async (
-    payload: { query: string; thread_id?: string; server_url?: string },
+    payload: { query: string; thread_id?: string; server_url?: string; custom_prompt?: string },
     callbacks: StreamCallbacks,
   ) => {
     const userId = getUserId()
