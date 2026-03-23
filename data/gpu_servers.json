@@ -1,0 +1,9 @@
+[
+  {
+    "id": "gpu-14b",
+    "name": "Qwen3 14B",
+    "url": "http://localhost:8801/v1",
+    "model": "qwen3-14b",
+    "description": "GPU 서버 (RTX 4090)"
+  }
+]
