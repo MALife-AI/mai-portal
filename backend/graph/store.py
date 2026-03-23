@@ -416,6 +416,7 @@ class GraphStore:
                 "name": data.get("name", node_id),
                 "type": data.get("entity_type", "concept"),
                 "mentions": data.get("mentions", 0),
+                "source_paths": data.get("source_paths", []),
             }
             for node_id, data in self._graph.nodes(data=True)
         ]
