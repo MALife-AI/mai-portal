@@ -662,8 +662,7 @@ class GraphExtractor:
         "표:\n{table}\n\n"
         "문서: {doc_name}\n\n"
         "JSON 배열로만 응답:\n"
-        '[{{"key": "항목명 (구체적으로)", "value": "값", "context": "상위 구분/조건"}}]\n'
-        "예: [{{"key": "1종 암진단금", "value": "5,000만원", "context": "무배당 건강보험"}}]"
+        '[{{"key": "항목명", "value": "값", "context": "조건"}}]'
     )
 
     async def _decompose_table(self, table_md: str, doc_name: str) -> list[dict[str, str]]:
