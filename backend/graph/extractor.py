@@ -275,9 +275,12 @@ class GraphExtractor:
     def _get_llm(self) -> Any:
         if self._llm is None:
             from langchain_openai import ChatOpenAI
+            # 로컬 llama-server 사용 (LLAMA_SERVER_URL 설정 시)
+            base_url = getattr(settings, "llama_server_url", None)
             self._llm = ChatOpenAI(
                 model=self._model,
-                api_key=settings.openai_api_key,
+                base_url=base_url,
+                api_key=settings.openai_api_key if not base_url else "sk-no-key-required",
                 temperature=0,
             )
         return self._llm
