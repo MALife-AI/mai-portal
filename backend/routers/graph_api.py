@@ -372,17 +372,30 @@ async def build_graph(
                 f for f in vault_root.rglob("*.md")
                 if f.is_file() and not f.name.startswith(".")
             ]
-            _graph_build_progress["total_files"] = len(md_files)
+            # 이미 처리된 파일 목록 수집 (이어서 빌드)
+            existing_paths: set[str] = set()
+            try:
+                for node_id in extractor._store._graph.nodes:
+                    for sp in extractor._store._graph.nodes[node_id].get("source_paths", []):
+                        existing_paths.add(sp)
+            except Exception:
+                pass
 
-            # 그래프 클리어
-            extractor._store.clear()
+            remaining = [f for f in md_files if "/" + f.relative_to(vault_root).as_posix() not in existing_paths]
+            _graph_build_progress["total_files"] = len(md_files)
+            _graph_build_progress["processed"] = len(md_files) - len(remaining)
+            _graph_build_progress["entities"] = extractor._store.get_stats().get("node_count", 0)
+            _graph_build_progress["relationships"] = extractor._store.get_stats().get("edge_count", 0)
+
+            logger.info("Graph build: %d total, %d already done, %d remaining", len(md_files), len(md_files) - len(remaining), len(remaining))
 
             # 파일별 추출 (진행률 추적)
             sem = asyncio.Semaphore(4)
-            for i, md_file in enumerate(md_files):
+            base_processed = len(md_files) - len(remaining)
+            for i, md_file in enumerate(remaining):
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                 _graph_build_progress["current_file"] = md_file.name
-                _graph_build_progress["processed"] = i
+                _graph_build_progress["processed"] = base_processed + i
 
                 async with sem:
                     try:
