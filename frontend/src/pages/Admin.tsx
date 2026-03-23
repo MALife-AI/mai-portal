@@ -1803,7 +1803,33 @@ function SharedDocsTab() {
     } catch { /* ignore */ }
   }, [])
 
-  useEffect(() => { loadFiles(); loadGraphStats() }, [loadFiles, loadGraphStats])
+  useEffect(() => {
+    loadFiles()
+    loadGraphStats()
+    // 빌드 진행 중인지 확인
+    fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': getUserId() } })
+      .then(r => r.json())
+      .then(p => {
+        if (p.status === 'running') {
+          setGraphBuilding(true)
+          setBuildProgress(p)
+          // 폴링 시작
+          const poll = setInterval(async () => {
+            try {
+              const r2 = await fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': getUserId() } })
+              const p2 = await r2.json()
+              setBuildProgress(p2)
+              if (p2.status !== 'running') {
+                clearInterval(poll)
+                setGraphBuilding(false)
+                if (p2.status === 'completed') loadGraphStats()
+              }
+            } catch { /* ignore */ }
+          }, 2000)
+        }
+      })
+      .catch(() => {})
+  }, [loadFiles, loadGraphStats])
 
   const folderInputRef = useRef<HTMLInputElement>(null)
 
@@ -1864,30 +1890,33 @@ function SharedDocsTab() {
   async function handleBuildGraph() {
     setGraphBuilding(true)
     setBuildProgress(null)
+
+    // 빌드 시작 요청 (비동기라 즉시 반환)
     try {
-      await graphApi.buildGraph()
-      // 폴링으로 진행 상황 추적
-      const poll = setInterval(async () => {
-        try {
-          const r = await fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': getUserId() } })
-          const p = await r.json()
-          setBuildProgress(p)
-          if (p.status === 'completed' || p.status === 'error' || p.status === 'idle') {
-            clearInterval(poll)
-            setGraphBuilding(false)
-            if (p.status === 'completed') {
-              toast.success('그래프 구축 완료', `${p.entities}개 엔티티, ${p.relationships}개 관계`)
-              loadGraphStats()
-            } else if (p.status === 'error') {
-              toast.error('그래프 구축 실패', p.current_file || '알 수 없는 오류')
-            }
+      await fetch('/api/v1/graph/build', {
+        method: 'POST',
+        headers: { 'X-User-Id': getUserId(), 'Content-Type': 'application/json' },
+      })
+    } catch { /* 이미 시작됐을 수 있음 */ }
+
+    // 2초마다 진행 상황 폴링
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': getUserId() } })
+        const p = await r.json()
+        setBuildProgress(p)
+        if (p.status === 'completed' || p.status === 'error' || p.status === 'idle') {
+          clearInterval(poll)
+          setGraphBuilding(false)
+          if (p.status === 'completed') {
+            toast.success('그래프 구축 완료', `${p.entities}개 엔티티, ${p.relationships}개 관계`)
+            loadGraphStats()
+          } else if (p.status === 'error') {
+            toast.error('그래프 구축 실패', p.current_file || '알 수 없는 오류')
           }
-        } catch { /* ignore */ }
-      }, 2000)
-    } catch (err) {
-      toast.error('그래프 구축 시작 실패', String(err))
-      setGraphBuilding(false)
-    }
+        }
+      } catch { /* ignore */ }
+    }, 2000)
   }
 
   async function handleDeleteFile(path: string) {
