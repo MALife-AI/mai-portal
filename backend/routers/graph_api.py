@@ -332,51 +332,88 @@ async def get_visualization(
     }
 
 
+_graph_build_progress: dict[str, Any] = {
+    "status": "idle",
+    "total_files": 0,
+    "processed": 0,
+    "entities": 0,
+    "relationships": 0,
+    "errors": 0,
+    "current_file": "",
+}
+
+
 @router.post("/build", summary="그래프 재구축 (관리자 전용)")
 async def build_graph(
     user_id: str = Depends(get_current_user),
     iam: IAMEngine = Depends(get_iam),
 ) -> dict[str, Any]:
-    """Rebuild the knowledge graph from all vault documents.
-
-    Clears the existing graph and re-extracts entities and relationships from
-    every Markdown file in the vault root.  This is a long-running operation.
-
-    Args:
-        user_id: Authenticated user ID (must have ``admin`` role).
-        iam: IAM engine for role check.
-
-    Returns:
-        Build summary dict with ``files``, ``entities``, ``relationships``,
-        ``communities``, and ``errors`` fields.
-
-    Raises:
-        :class:`fastapi.HTTPException`: HTTP 403 when caller is not admin.
-    """
+    """비동기로 그래프를 재구축합니다. 진행 상황은 GET /build/progress로 조회."""
     _require_admin(user_id, iam)
 
-    from backend.config import settings  # noqa: PLC0415
-    from backend.graph.builder import get_graph_builder  # noqa: PLC0415
+    if _graph_build_progress["status"] == "running":
+        return {"status": "already_running", "progress": _graph_build_progress}
 
-    # 베이스 그래프만 재빌드 (Shared/ 문서 대상)
-    layered = _get_layered()
-    extractor = _get_extractor(layered.base)
-    summary = await extractor.build_from_vault(settings.vault_root)
+    import asyncio
+    from backend.config import settings as _settings
 
-    # 전 버전 인덱싱 (git history 기반)
-    try:
-        builder = get_graph_builder()
-        version_stats = await builder.build_all_versions(settings.vault_root)
-        summary["versions_indexed"] = version_stats["versions_indexed"]
-        if version_stats["errors"]:
-            summary.setdefault("errors", []).extend(version_stats["errors"])
-    except Exception as exc:
-        logger.warning("Version indexing failed (non-fatal): %s", exc)
-        summary["versions_indexed"] = 0
+    async def _build_task():
+        _graph_build_progress.update({
+            "status": "running", "total_files": 0, "processed": 0,
+            "entities": 0, "relationships": 0, "errors": 0, "current_file": "",
+        })
+        try:
+            layered = _get_layered()
+            extractor = _get_extractor(layered.base)
 
-    _log_graph_action(user_id, "build_full", summary)
-    logger.info("Base graph rebuilt (with versions) by user=%s: %s", user_id, summary)
-    return {"status": "completed", "layer": "base", **summary}
+            # 파일 목록 수집
+            vault_root = _settings.vault_root
+            md_files = [
+                f for f in vault_root.rglob("*.md")
+                if f.is_file() and not f.name.startswith(".")
+            ]
+            _graph_build_progress["total_files"] = len(md_files)
+
+            # 그래프 클리어
+            extractor._store.clear()
+
+            # 파일별 추출 (진행률 추적)
+            sem = asyncio.Semaphore(4)
+            for i, md_file in enumerate(md_files):
+                rel_path = "/" + md_file.relative_to(vault_root).as_posix()
+                _graph_build_progress["current_file"] = md_file.name
+                _graph_build_progress["processed"] = i
+
+                async with sem:
+                    try:
+                        ents, rels = await extractor.extract_from_file(md_file, rel_path)
+                        _graph_build_progress["entities"] += len(ents)
+                        _graph_build_progress["relationships"] += len(rels)
+                    except Exception:
+                        _graph_build_progress["errors"] += 1
+
+            _graph_build_progress["processed"] = len(md_files)
+            extractor._store.save()
+
+            _graph_build_progress["status"] = "completed"
+            _graph_build_progress["current_file"] = ""
+            _log_graph_action(user_id, "build_full", dict(_graph_build_progress))
+
+        except Exception as exc:
+            logger.error("Graph build failed: %s", exc)
+            _graph_build_progress["status"] = "error"
+            _graph_build_progress["current_file"] = str(exc)
+
+    asyncio.create_task(_build_task())
+    return {"status": "started", "total_files": 0}
+
+
+@router.get("/build/progress", summary="그래프 빌드 진행 상황")
+async def build_progress(
+    user_id: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """현재 그래프 빌드 진행 상황을 반환합니다."""
+    return _graph_build_progress
 
 
 @router.post("/build-document", summary="단일 문서 그래프 추가")

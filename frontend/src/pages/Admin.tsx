@@ -1774,6 +1774,9 @@ function SharedDocsTab() {
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [graphBuilding, setGraphBuilding] = useState(false)
+  const [buildProgress, setBuildProgress] = useState<{
+    status: string; total_files: number; processed: number; entities: number; relationships: number; current_file: string
+  } | null>(null)
   const [graphStats, setGraphStats] = useState<{ node_count: number; edge_count: number; community_count: number } | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [versions, setVersions] = useState<Array<{
@@ -1860,14 +1863,31 @@ function SharedDocsTab() {
 
   async function handleBuildGraph() {
     setGraphBuilding(true)
+    setBuildProgress(null)
     try {
-      const result = await graphApi.buildGraph()
-      toast.success('그래프 재구축 완료', `엔티티 ${result.entities}개, 관계 ${result.relationships}개`)
-      loadGraphStats()
+      await graphApi.buildGraph()
+      // 폴링으로 진행 상황 추적
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': getUserId() } })
+          const p = await r.json()
+          setBuildProgress(p)
+          if (p.status === 'completed' || p.status === 'error' || p.status === 'idle') {
+            clearInterval(poll)
+            setGraphBuilding(false)
+            if (p.status === 'completed') {
+              toast.success('그래프 구축 완료', `${p.entities}개 엔티티, ${p.relationships}개 관계`)
+              loadGraphStats()
+            } else if (p.status === 'error') {
+              toast.error('그래프 구축 실패', p.current_file || '알 수 없는 오류')
+            }
+          }
+        } catch { /* ignore */ }
+      }, 2000)
     } catch (err) {
-      toast.error('그래프 구축 실패', String(err))
+      toast.error('그래프 구축 시작 실패', String(err))
+      setGraphBuilding(false)
     }
-    setGraphBuilding(false)
   }
 
   async function handleDeleteFile(path: string) {
@@ -2210,6 +2230,32 @@ function SharedDocsTab() {
         <p className="text-2xs text-surface-600 mb-4">
           공용 문서에서 엔티티와 관계를 추출하여 지식 그래프를 구축합니다. 문서 추가/삭제 후 재구축하세요.
         </p>
+
+        {/* 빌드 진행률 */}
+        {graphBuilding && buildProgress && buildProgress.status === 'running' && (
+          <div className="mb-4 p-3 rounded-md" style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-surface-900">
+                {buildProgress.processed} / {buildProgress.total_files} 파일 처리 중
+              </span>
+              <span className="text-2xs font-mono text-gold-500">
+                {buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-surface-300 overflow-hidden">
+              <motion.div
+                className="h-full rounded-full bg-gold-500"
+                initial={{ width: 0 }}
+                animate={{ width: `${buildProgress.total_files > 0 ? (buildProgress.processed / buildProgress.total_files * 100) : 0}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-2 text-2xs text-surface-600">
+              <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
+              <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+            </div>
+          </div>
+        )}
 
         {graphStats ? (
           <div className="grid grid-cols-3 gap-3">
