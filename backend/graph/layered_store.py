@@ -37,13 +37,16 @@ class LayeredGraphStore:
         # 베이스 그래프 로드
         self._base = GraphStore(persist_path=self._base_path)
 
-        # 호환성: 기존 knowledge_graph.json이 있고 base.json이 없으면 마이그레이션
+        # 호환성: knowledge_graph.json이 base.json보다 크면 마이그레이션
         legacy_path = _GRAPH_ROOT / "knowledge_graph.json"
-        if legacy_path.exists() and not self._base_path.exists():
-            import shutil
-            shutil.copy2(legacy_path, self._base_path)
-            self._base = GraphStore(persist_path=self._base_path)
-            logger.info("Migrated legacy knowledge_graph.json → base.json")
+        if legacy_path.exists():
+            legacy_size = legacy_path.stat().st_size
+            base_size = self._base_path.stat().st_size if self._base_path.exists() else 0
+            if legacy_size > base_size:
+                import shutil
+                shutil.copy2(legacy_path, self._base_path)
+                self._base = GraphStore(persist_path=self._base_path)
+                logger.info("Migrated knowledge_graph.json → base.json (legacy %d > base %d bytes)", legacy_size, base_size)
 
         # 사용자별 그래프 캐시
         self._user_stores: dict[str, GraphStore] = {}
