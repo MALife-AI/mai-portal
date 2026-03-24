@@ -150,6 +150,7 @@ class GraphRAGEngine:
         user_roles: list[str],
         mode: str = "hybrid",
         n_results: int = 10,
+        effective_after: str | None = None,
     ) -> GraphRAGResult:
         """Execute a GraphRAG search and return an enriched result.
 
@@ -164,6 +165,9 @@ class GraphRAGEngine:
             A :class:`GraphRAGResult` containing all retrieval signals and
             the combined context string for LLM consumption.
         """
+        # 시행일 기준 필터를 인스턴스에 임시 저장 (검색 중 사용)
+        self._effective_after = effective_after
+
         mode = mode.lower()
         if mode == "local":
             return await self._search_local(query, user_id, user_roles, n_results)
@@ -589,8 +593,9 @@ class GraphRAGEngine:
         # Extract alphanumeric / Korean tokens from the query
         query_tokens = set(re.findall(r"[a-zA-Z0-9가-힣\-]+", query_lower))
 
+        eff = getattr(self, '_effective_after', None)
         matched: dict[str, Entity] = {}
-        for entity in self._store.search_entities(query, limit=50):
+        for entity in self._store.search_entities(query, limit=50, effective_after=eff):
             if entity.id not in matched:
                 matched[entity.id] = entity
 

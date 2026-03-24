@@ -236,6 +236,7 @@ class GraphStore:
         query: str,
         entity_type: str | None = None,
         limit: int = 20,
+        effective_after: str | None = None,
     ) -> list[Entity]:
         """Fuzzy name search over all entities using rapidfuzz.
 
@@ -243,6 +244,8 @@ class GraphStore:
             query: Search string.
             entity_type: Optional filter to a specific entity category.
             limit: Maximum number of results to return.
+            effective_after: 시행일 필터 (이 날짜 이후 시행된 엔티티만).
+                같은 이름의 엔티티가 여러 버전 있으면 해당 날짜 기준 최신 버전 반환.
 
         Returns:
             List of :class:`Entity` objects ranked by fuzzy match score.
@@ -251,6 +254,12 @@ class GraphStore:
         for node_id, data in self._graph.nodes(data=True):
             if entity_type and data.get("entity_type") != entity_type:
                 continue
+            # 시행일 필터
+            if effective_after:
+                props = data.get("properties", {})
+                ed = props.get("effective_date", "")
+                if ed and ed < effective_after:
+                    continue  # 시행일이 기준일보다 이전이면 건너뜀
             candidates.append((node_id, data.get("name", node_id)))
 
         if not candidates:
@@ -410,16 +419,18 @@ class GraphStore:
         Properties and source_paths are omitted to keep the payload small.
         Use the entity detail API for full property access.
         """
-        nodes = [
-            {
+        nodes = []
+        for node_id, data in self._graph.nodes(data=True):
+            props = data.get("properties", {})
+            nodes.append({
                 "id": node_id,
                 "name": data.get("name", node_id),
                 "type": data.get("entity_type", "concept"),
                 "mentions": data.get("mentions", 0),
                 "source_paths": data.get("source_paths", []),
-            }
-            for node_id, data in self._graph.nodes(data=True)
-        ]
+                "effective_date": props.get("effective_date", ""),
+                "description": props.get("description", ""),
+            })
 
         edges = [
             {

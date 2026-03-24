@@ -268,9 +268,17 @@ async def invoke_agent_stream(
         iam = IAMEngine(_settings.vault_root / "iam.yaml")
         engine = GraphRAGEngine(graph_store=store, iam_engine=iam)
 
+        # 쿼리에서 날짜 추출 (가입일/시행일 기준 필터)
+        import re as _re_date
+        _date_effective = None
+        date_match = _re_date.search(r'(\d{4})[-./년](\d{1,2})[-./월](\d{1,2})', query)
+        if date_match:
+            _date_effective = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+
         rag_result = await engine.search(
             query=query, user_id=user_id, user_roles=user_roles,
             mode="hybrid", n_results=5,
+            effective_after=_date_effective,
         )
 
         matched_ids = {(e.get("id") or e.get("name", "")) for e in rag_result.matched_entities}
