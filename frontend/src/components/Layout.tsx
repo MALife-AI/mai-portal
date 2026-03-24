@@ -1,17 +1,79 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useEffect, useCallback } from 'react'
+import { Cpu } from 'lucide-react'
+import { getUserId } from '@/api/client'
 import { Sidebar } from './Sidebar'
 import { ToastContainer } from './Toast'
 import { TaskBar } from './TaskBar'
 
 const PAGE_TITLES: Record<string, string> = {
   '/': '대시보드',
-  '/vault': '파일 탐색기',
+  '/docs': '문서 관리',
   '/agent': '에이전트 콘솔',
-  '/ingest': '문서 업로드',
-  '/search': '시맨틱 검색',
+  '/knowledge': '지식 검색',
+  '/workflow': '워크플로우',
   '/skills': '스킬',
+  '/settings': '계정 설정',
   '/admin': '관리 패널',
+}
+
+interface GpuServer {
+  id: string
+  name: string
+  model: string
+  online: boolean
+  signal: string
+  label: string
+  load_pct: number
+}
+
+function GpuHealthIndicator() {
+  const [servers, setServers] = useState<GpuServer[]>([])
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await fetch('/api/v1/admin/inference-status', { headers: { 'X-User-Id': getUserId() } })
+      if (r.ok) {
+        const d = await r.json()
+        setServers(d.servers || [])
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    fetchStatus()
+    const interval = setInterval(fetchStatus, 30000) // 30초마다
+    return () => clearInterval(interval)
+  }, [fetchStatus])
+
+  if (servers.length === 0) return null
+
+  const SIGNAL_COLORS: Record<string, string> = { green: '#34C759', yellow: '#F5A623', red: '#FF3B30' }
+
+  return (
+    <div className="flex items-center gap-2">
+      {servers.map(srv => {
+        const color = SIGNAL_COLORS[srv.signal] || SIGNAL_COLORS.red
+        return (
+          <div
+            key={srv.id}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-2xs font-mono"
+            style={{ border: '1px solid var(--color-border)' }}
+            title={`${srv.name} · ${srv.model} · ${srv.label} (${srv.load_pct}%)`}
+          >
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: color, boxShadow: srv.online ? `0 0 6px ${color}66` : 'none' }}
+            />
+            <Cpu size={10} className="text-surface-600" />
+            <span className="text-surface-800">{srv.name}</span>
+            <span style={{ color, fontSize: '9px' }}>{srv.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export function Layout() {
@@ -49,6 +111,7 @@ export function Layout() {
             </h1>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <GpuHealthIndicator />
             <span className="text-2xs font-mono text-surface-600">
               {new Date().toLocaleDateString('ko-KR', {
                 year: 'numeric',
