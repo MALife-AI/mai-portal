@@ -421,6 +421,64 @@ async def build_graph(
     return {"status": "started", "total_files": 0}
 
 
+@router.post("/fix-paths", summary="그래프 source_paths 일괄 수정")
+async def fix_source_paths(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+) -> dict[str, Any]:
+    """그래프 노드의 source_paths를 실제 vault 경로와 매칭하여 수정합니다."""
+    _require_admin(user_id, iam)
+
+    from backend.config import settings as _s
+    import asyncio
+
+    def _fix():
+        store = _get_store()
+        vault_root = _s.vault_root
+
+        # vault 내 실제 파일 경로 인덱스 (파일명 → 전체 상대 경로)
+        file_index: dict[str, str] = {}
+        for md_file in vault_root.rglob("*.md"):
+            rel = md_file.relative_to(vault_root).as_posix()
+            file_index[md_file.name] = rel
+
+        fixed_count = 0
+        for node_id in store._graph.nodes:
+            data = store._graph.nodes[node_id]
+            paths = data.get("source_paths", [])
+            if not paths:
+                continue
+
+            new_paths = []
+            changed = False
+            for p in paths:
+                # 파일명 추출
+                fname = p.split("/")[-1].split("@")[0]
+                if fname in file_index:
+                    correct = file_index[fname]
+                    if correct != p and correct != p.lstrip("/"):
+                        new_paths.append(correct)
+                        changed = True
+                        continue
+                # 선행 슬래시 + Public → Shared 치환
+                normalized = p.lstrip("/").replace("Public/", "Shared/", 1)
+                if normalized != p:
+                    new_paths.append(normalized)
+                    changed = True
+                else:
+                    new_paths.append(p)
+
+            if changed:
+                data["source_paths"] = new_paths
+                fixed_count += 1
+
+        store.save()
+        return fixed_count
+
+    count = await asyncio.to_thread(_fix)
+    return {"status": "fixed", "nodes_updated": count}
+
+
 @router.get("/build/progress", summary="그래프 빌드 진행 상황")
 async def build_progress(
     user_id: str = Depends(get_current_user),

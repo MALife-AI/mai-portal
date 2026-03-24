@@ -319,7 +319,7 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
                     className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gold-500 hover:bg-surface-200 transition-colors"
                   >
                     <FileText size={11} className="shrink-0" />
-                    <span className="truncate font-mono">{path}</span>
+                    <span className="truncate font-mono">{path.split('/').pop() || path}</span>
                   </button>
                 ))}
               </div>
