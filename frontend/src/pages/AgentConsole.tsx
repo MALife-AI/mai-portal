@@ -391,8 +391,37 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
                     color: color,
                     border: `1px solid ${color}33`,
                   }}
-                  title={tooltip}
                 >
+                  {/* 커스텀 호버 툴팁 */}
+                  <div
+                    className="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-50 w-64 pointer-events-none"
+                  >
+                    <div
+                      className="rounded-lg p-2.5 shadow-xl text-left"
+                      style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+                    >
+                      {node.match_reason && (
+                        <p className="text-2xs font-semibold text-gold-500 mb-1">{node.match_reason}</p>
+                      )}
+                      {node.description && (
+                        <p className="text-2xs text-surface-800 mb-1">{node.description}</p>
+                      )}
+                      {node.source_titles && node.source_titles.length > 0 && (
+                        <p className="text-2xs text-surface-600">
+                          출처: {node.source_titles.join(', ')}
+                        </p>
+                      )}
+                      {node.page_start != null && (
+                        <p className="text-2xs text-surface-600">
+                          페이지: {node.page_start}{node.page_end && node.page_end !== node.page_start ? `-${node.page_end}` : ''}
+                        </p>
+                      )}
+                      {node.effective_date && (
+                        <p className="text-2xs text-surface-600">시행일: {node.effective_date}</p>
+                      )}
+                    </div>
+                  </div>
+
                   <span
                     className="inline-flex items-center justify-center rounded font-bold"
                     style={{ fontSize: '8px', width: '14px', height: '14px', background: `${color}33` }}

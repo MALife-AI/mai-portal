@@ -2,6 +2,7 @@
 // VaultExplorer(파일 트리 + 뷰어/에디터) + Ingestion(업로드 + 파이프라인) 통합
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -206,11 +207,23 @@ function UploadJobCard({ job, onCancel }: { job: UploadJob; onCancel?: (id: stri
 export default function DocumentManager() {
   const toast = useToast()
   const { selectedVaultPath, setSelectedVaultPath, userId } = useStore()
+  const [searchParams] = useSearchParams()
 
   // ── File tree state ──
   const [files, setFiles] = useState<string[]>([])
   const [isLoadingFiles, setIsLoadingFiles] = useState(true)
   const [fileTab, setFileTab] = useState<'shared' | 'private'>('private')
+
+  // URL ?path= 파라미터로 파일 자동 열기
+  useEffect(() => {
+    const pathParam = searchParams.get('path')
+    if (pathParam) {
+      setSelectedVaultPath(pathParam)
+      if (pathParam.startsWith('Shared/') || pathParam.startsWith('/Shared/')) {
+        setFileTab('shared')
+      }
+    }
+  }, [searchParams, setSelectedVaultPath])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // ── Document viewer/editor state ──

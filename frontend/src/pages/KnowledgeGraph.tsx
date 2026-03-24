@@ -315,7 +315,7 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
                 {entity.source_paths.map((path) => (
                   <button
                     key={path}
-                    onClick={() => navigate(`/vault?path=${encodeURIComponent(path)}`)}
+                    onClick={() => navigate(`/docs?path=${encodeURIComponent(path)}`)}
                     className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gold-500 hover:bg-surface-200 transition-colors"
                   >
                     <FileText size={11} className="shrink-0" />
