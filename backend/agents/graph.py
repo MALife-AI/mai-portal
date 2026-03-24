@@ -273,6 +273,8 @@ async def invoke_agent_stream(
             mode="hybrid", n_results=5,
         )
 
+        matched_ids = {(e.get("id") or e.get("name", "")) for e in rag_result.matched_entities}
+
         seen_ids: set[str] = set()
         for e in rag_result.matched_entities + rag_result.related_entities:
             eid = e.get("id") or e.get("name", "")
@@ -280,11 +282,42 @@ async def invoke_agent_stream(
                 continue
             seen_ids.add(eid)
             props = e.get("properties", {})
+
+            # 참조 이유 결정
+            if eid in matched_ids:
+                reason = f"'{query[:20]}' 키워드 직접 매칭"
+            else:
+                # 관계 경로에서 어떤 관계로 연결되었는지 찾기
+                rel_type = ""
+                connected_from = ""
+                for rp in rag_result.relationship_paths:
+                    if rp["target"] == eid:
+                        rel_type = rp["type"]
+                        connected_from = rp["source"]
+                        break
+                    elif rp["source"] == eid:
+                        rel_type = rp["type"]
+                        connected_from = rp["target"]
+                        break
+                if rel_type:
+                    rel_labels = {
+                        "covers": "보장", "includes": "포함", "excludes": "면책",
+                        "requires": "요건", "depends_on": "의존", "regulates": "규제",
+                        "belongs_to": "소속", "references": "참조", "defines": "정의",
+                        "diagnoses": "진단", "pays": "지급", "renews_as": "갱신",
+                        "supersedes": "대체", "must_coexist": "의무동시가입",
+                    }
+                    label = rel_labels.get(rel_type, rel_type)
+                    reason = f"'{connected_from[:20]}' → [{label}] 관계로 탐색"
+                else:
+                    reason = "관련 엔티티 (그래프 탐색)"
+
             source_nodes.append({
                 "id": eid,
                 "name": e.get("name", ""),
                 "type": e.get("entity_type", ""),
                 "description": props.get("description", ""),
+                "match_reason": reason,
                 "source_titles": [
                     p.split("/")[-1].replace(".md", "").split("@")[0]
                     for p in e.get("source_paths", [])

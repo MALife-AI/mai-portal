@@ -367,23 +367,31 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
           )}
         </div>
 
-        {/* 출처: 번호 매긴 엔티티 + 소스 문서 */}
+        {/* 출처: 번호 매긴 엔티티 + 소스 문서 + 참조 이유 */}
         {!isUser && message.source_nodes && message.source_nodes.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-1">
             {message.source_nodes.map((node, idx) => {
               const colors = ['#F37021','#4A90D9','#34C759','#AF52DE','#FF3B30','#5AC8FA','#FFCC00','#FF2D55','#64D2FF','#30D158']
               const color = colors[idx % colors.length]
+              const tooltip = [
+                node.match_reason || '',
+                node.description || '',
+                node.source_titles?.length ? `출처: ${node.source_titles.join(', ')}` : '',
+                node.page_start != null ? `페이지: ${node.page_start}${node.page_end && node.page_end !== node.page_start ? `-${node.page_end}` : ''}` : '',
+                node.effective_date ? `시행일: ${node.effective_date}` : '',
+              ].filter(Boolean).join('\n')
+
               return (
                 <button
                   key={node.id}
                   onClick={() => setGraphOverlay({ focusIndex: idx })}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-mono leading-tight hover:opacity-80 transition-opacity cursor-pointer"
+                  className="group relative inline-flex items-center gap-1 px-2 py-1 rounded text-2xs font-mono leading-tight hover:opacity-80 transition-opacity cursor-pointer"
                   style={{
                     background: `${color}14`,
                     color: color,
                     border: `1px solid ${color}33`,
                   }}
-                  title={node.description || node.name}
+                  title={tooltip}
                 >
                   <span
                     className="inline-flex items-center justify-center rounded font-bold"
@@ -392,7 +400,7 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
                     {idx + 1}
                   </span>
                   <span className="font-semibold">{node.name}</span>
-                  {node.source_titles.length > 0 && (
+                  {node.source_titles && node.source_titles.length > 0 && (
                     <span style={{ color: 'var(--color-text-muted)', fontSize: '9px' }}>
                       | {node.source_titles[0]}{node.source_titles.length > 1 ? ` 외 ${node.source_titles.length - 1}건` : ''}
                       {node.page_start != null && (

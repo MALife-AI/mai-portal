@@ -80,6 +80,7 @@ class GraphRAGResult:
     communities: list[dict[str, Any]] = field(default_factory=list)
     source_documents: list[str] = field(default_factory=list)
     combined_context: str = ""
+    relationship_paths: list[dict[str, str]] = field(default_factory=list)
 
 
 def _entity_to_dict(entity: Entity) -> dict[str, Any]:
@@ -241,6 +242,15 @@ class GraphRAGEngine:
             graph_context=graph_ctx,
         )
 
+        # 관계 경로 구성 (참조 근거용)
+        rel_paths = []
+        for rel in all_rels[:20]:
+            rel_paths.append({
+                "source": rel.source_id,
+                "target": rel.target_id,
+                "type": rel.relation_type,
+            })
+
         return GraphRAGResult(
             query=query,
             mode="local",
@@ -251,6 +261,7 @@ class GraphRAGEngine:
             communities=[_community_to_dict(c) for c in communities],
             source_documents=source_docs,
             combined_context=combined,
+            relationship_paths=rel_paths,
         )
 
     async def _search_global(
