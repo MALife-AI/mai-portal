@@ -254,12 +254,12 @@ class GraphStore:
         for node_id, data in self._graph.nodes(data=True):
             if entity_type and data.get("entity_type") != entity_type:
                 continue
-            # 시행일 필터
+            # 시행일 필터: effective_date <= 기준일 (기준일 시점에 시행 중인 것만)
             if effective_after:
                 props = data.get("properties", {})
                 ed = props.get("effective_date", "")
-                if ed and ed < effective_after:
-                    continue  # 시행일이 기준일보다 이전이면 건너뜀
+                if ed and ed > effective_after:
+                    continue  # 시행일이 기준일보다 미래이면 아직 시행 전 → 제외
             candidates.append((node_id, data.get("name", node_id)))
 
         if not candidates:
@@ -279,6 +279,28 @@ class GraphStore:
             entity = self.get_entity(node_id)
             if entity is not None:
                 results.append(entity)
+
+        # 시행일 기준: 같은 이름의 여러 버전 중 기준일 이전 최신만 남김
+        if effective_after and results:
+            by_name: dict[str, list[Entity]] = {}
+            for e in results:
+                by_name.setdefault(e.name, []).append(e)
+
+            deduped: list[Entity] = []
+            for name, versions in by_name.items():
+                if len(versions) == 1:
+                    deduped.append(versions[0])
+                else:
+                    # effective_date가 있는 것 중 기준일 이전 최신
+                    dated = [(e, e.properties.get("effective_date", "")) for e in versions]
+                    valid = [(e, d) for e, d in dated if d and d <= effective_after]
+                    if valid:
+                        valid.sort(key=lambda x: x[1], reverse=True)
+                        deduped.append(valid[0][0])  # 최신 1개만
+                    else:
+                        # 날짜 없는 것 포함
+                        deduped.append(versions[0])
+            results = deduped
 
         return results
 
