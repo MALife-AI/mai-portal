@@ -421,19 +421,55 @@ class GraphExtractor:
 
         content = await asyncio.to_thread(file_path.read_text, "utf-8")
 
-        # frontmatter에서 effective_date 추출
+        # effective_date 추출 (우선순위: 본문 > frontmatter > 파일명)
         effective_date = None
         try:
+            import re as _re
             from backend.core.frontmatter import parse_frontmatter
             meta, body = parse_frontmatter(content)
-            effective_date = meta.get("effective_date") or meta.get("updated_at", "")[:10] or None
-            # 파일명에서 날짜 추출 시도 (예: _약관_20220101.md)
+
+            # 1순위: frontmatter에 명시된 effective_date
+            effective_date = meta.get("effective_date") or None
+
+            # 2순위: 본문에서 시행일 코드 추출 (예: [68364_D02_20250401], 시행일: 2025.04.01)
             if not effective_date:
-                import re
-                date_match = re.search(r'(\d{8})', file_path.stem)
-                if date_match:
-                    d = date_match.group(1)
+                # 패턴1: [코드_D02_YYYYMMDD]
+                m = _re.search(r'\[\w+_D\d+_(\d{8})\]', body)
+                if m:
+                    d = m.group(1)
                     effective_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+
+            if not effective_date:
+                # 패턴2: 시행일 : YYYY.MM.DD 또는 시행일: YYYY-MM-DD 또는 시행일 YYYY년MM월DD일
+                m = _re.search(r'시행일\s*[:：]?\s*(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})', body[:3000])
+                if m:
+                    effective_date = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+
+            if not effective_date:
+                # 패턴3: 본문 상단 8자리 날짜 (YYYYMMDD)
+                m = _re.search(r'(?<!\d)(\d{8})(?!\d)', body[:1000])
+                if m:
+                    d = m.group(1)
+                    y, mo, day = int(d[:4]), int(d[4:6]), int(d[6:8])
+                    if 2020 <= y <= 2030 and 1 <= mo <= 12 and 1 <= day <= 31:
+                        effective_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+
+            # 3순위: 파일명에서 날짜 추출 (예: _약관_2504.md → 2025-04, _약관_20250401.md)
+            if not effective_date:
+                m = _re.search(r'_(\d{4})\.md$', file_path.name)
+                if m:
+                    code = m.group(1)
+                    # YYMM 형식 (2504 → 2025-04)
+                    yy, mm = int(code[:2]), int(code[2:])
+                    if 1 <= mm <= 12:
+                        effective_date = f"20{yy}-{mm:02d}-01"
+
+            if not effective_date:
+                m = _re.search(r'(\d{8})', file_path.stem)
+                if m:
+                    d = m.group(1)
+                    effective_date = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+
         except Exception:
             pass
 
