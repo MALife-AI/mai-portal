@@ -106,12 +106,13 @@ def _convert_html_tables(md: str) -> str:
     return table_pattern.sub(_replace, md)
 
 
+_PRESERVE_HTML_TAGS = frozenset({"img", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "colgroup", "col", "caption"})
+
+
 def _strip_html_tags(md: str) -> str:
-    """불필요한 HTML 태그 제거. img만 보존."""
-    # 이미 변환된 table은 없으므로 잔여 태그 모두 제거
+    """불필요한 HTML 태그 제거. img, table 관련 태그는 보존."""
     md = re.sub(
-        r"</?(?:div|span|font|center|br|table|thead|tbody|tfoot|tr|td|th|"
-        r"colgroup|col|caption|style|p|ul|ol|li|a|b|i|u|em|strong|"
+        r"</?(?:div|span|font|center|br|style|p|ul|ol|li|a|b|i|u|em|strong|"
         r"h[1-6]|section|article|header|footer|nav|main|aside|figure|"
         r"figcaption|blockquote|pre|code|sub|sup|s|del|ins|mark|small|"
         r"abbr|details|summary|dl|dt|dd|hr)\s*/?>",
@@ -119,9 +120,14 @@ def _strip_html_tags(md: str) -> str:
         md,
         flags=re.IGNORECASE,
     )
-    # 속성이 있는 닫는 태그는 위에서 못 잡을 수 있으므로 추가 처리
-    md = re.sub(r"</?[a-z][a-z0-9]*(?:\s+[^>]*)?>", "", md, flags=re.IGNORECASE)
-    # img 태그 복원은 불필요 (위 패턴에 img 미포함이지만 만약을 위해)
+
+    def _keep_preserved(m: re.Match) -> str:
+        tag_match = re.match(r"</?(\w+)", m.group())
+        if tag_match and tag_match.group(1).lower() in _PRESERVE_HTML_TAGS:
+            return m.group()
+        return ""
+
+    md = re.sub(r"</?[a-z][a-z0-9]*(?:\s+[^>]*)?>", _keep_preserved, md, flags=re.IGNORECASE)
     return md
 
 

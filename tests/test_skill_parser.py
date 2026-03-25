@@ -140,9 +140,10 @@ def test_non_skill_files_ignored(registry: SkillRegistry) -> None:
 
 
 def test_skill_registry_list_returns_all_skills(registry: SkillRegistry) -> None:
-    """list_skills returns one entry per loaded skill."""
+    """list_skills returns file skills + built-in GraphRAG skills."""
     skills = registry.list_skills()
-    assert len(skills) == 2
+    # 2 file skills + 9 prompt skills + code skills
+    assert len(skills) >= 2
 
 
 def test_skill_registry_list_contains_expected_names(registry: SkillRegistry) -> None:
@@ -159,11 +160,16 @@ def test_skill_registry_list_entries_are_dicts(registry: SkillRegistry) -> None:
 
 
 def test_skill_registry_empty_when_no_skills_dir(tmp_path: Path) -> None:
-    """SkillRegistry silently handles a missing Skills directory."""
+    """SkillRegistry with empty dir still loads built-in prompt skills."""
     reg = SkillRegistry(skills_dir=tmp_path)
     reg.load_all()
 
-    assert reg.list_skills() == []
+    # 파일 스킬은 없지만 내장 프롬프트 스킬은 로드됨
+    skills = reg.list_skills()
+    names = {s["name"] for s in skills}
+    assert "get-product-spec" in names  # 내장 스킬
+    # 파일 기반 스킬은 없음
+    assert "calculate-insurance-premium" not in names
 
 
 # ---------------------------------------------------------------------------

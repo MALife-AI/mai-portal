@@ -75,7 +75,7 @@ def test_large_chunk_split_each_part_within_limit() -> None:
     para_c = "Z" * 400
     md = f"# Oversized\n{para_a}\n\n{para_b}\n\n{para_c}\n"
 
-    chunks = chunk_markdown(md, max_chunk_size=500)
+    chunks = chunk_markdown(md, max_chunk_size=500, overlap=0)
 
     for chunk in chunks:
         assert len(chunk.content) <= 500, (

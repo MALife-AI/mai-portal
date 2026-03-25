@@ -206,18 +206,25 @@ def _split_large_table_aware(text: str, max_size: int) -> list[str]:
     blocks = _extract_blocks(text)
     parts: list[str] = []
     current_parts: list[str] = []
-    current_size = 0
+
+    def _joined_size() -> int:
+        return len("\n\n".join(current_parts))
 
     for block in blocks:
-        block_size = len(block)
-        # +2 accounts for the "\n\n" separator that will be added
-        if current_size + block_size + 2 > max_size and current_parts:
+        # 단일 블록이 한도를 초과하면 강제 분할
+        if len(block) > max_size:
+            if current_parts:
+                parts.append("\n\n".join(current_parts).strip())
+                current_parts = []
+            for i in range(0, len(block), max_size):
+                parts.append(block[i:i + max_size])
+            continue
+
+        if current_parts and _joined_size() + 2 + len(block) > max_size:
             parts.append("\n\n".join(current_parts).strip())
             current_parts = [block]
-            current_size = block_size
         else:
             current_parts.append(block)
-            current_size += block_size + 2
 
     if current_parts:
         parts.append("\n\n".join(current_parts).strip())
