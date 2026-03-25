@@ -1805,16 +1805,20 @@ function InfraTab() {
       {statusLoading && !hostStatus && (
         <div className="text-center py-8"><Loader2 size={18} className="animate-spin text-gold-500 mx-auto" /></div>
       )}
-      {hostStatus && (
+      {hostStatus && !hostStatus.offline && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="panel p-4 space-y-4">
           <p className="text-xs font-semibold text-surface-800">호스트 리소스</p>
-          <ResourceBar label="CPU" value={hostStatus.cpu_percent} max={100} unit="%" icon={Cpu} />
-          <ResourceBar label="메모리" value={hostStatus.memory.used_gb} max={hostStatus.memory.total_gb} unit=" GB" icon={Server} />
-          <ResourceBar label="디스크 사용" value={hostStatus.disk.total_gb - hostStatus.disk.free_gb}
-            max={hostStatus.disk.total_gb} unit=" GB" icon={HardDrive} />
+          <ResourceBar label="CPU" value={hostStatus.cpu_percent || 0} max={100} unit="%" icon={Cpu} />
+          {hostStatus.memory && (
+            <ResourceBar label="메모리" value={hostStatus.memory.used_gb} max={hostStatus.memory.total_gb} unit=" GB" icon={Server} />
+          )}
+          {hostStatus.disk && (
+            <ResourceBar label="디스크 사용" value={hostStatus.disk.total_gb - hostStatus.disk.free_gb}
+              max={hostStatus.disk.total_gb} unit=" GB" icon={HardDrive} />
+          )}
 
           {/* GPU cards */}
-          {hostStatus.gpus.length > 0 && (
+          {hostStatus.gpus && hostStatus.gpus.length > 0 && (
             <div>
               <p className="text-2xs text-surface-600 uppercase mb-2">GPU</p>
               <div className="grid grid-cols-2 gap-2">
