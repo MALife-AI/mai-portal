@@ -394,7 +394,13 @@ class SkillRegistry:
                             denied_count += 1
                             continue
 
-                    entry: dict[str, Any] = {"name": e.name, "type": e.entity_type}
+                    # 보안등급 체크: Grade 3는 admin만 접근
+                    sg = e.properties.get("security_grade", 1)
+                    if sg >= 3 and not is_admin:
+                        denied_count += 1
+                        continue
+
+                    entry: dict[str, Any] = {"name": e.name, "type": e.entity_type, "security_grade": sg}
                     for key in [
                         "description", "product_code", "rider_code",
                         "coverage_amount", "coverage_period", "payment_period",

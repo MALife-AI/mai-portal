@@ -302,6 +302,7 @@ class GraphExtractor:
         text: str,
         source_path: str,
         effective_date: str | None = None,
+        security_grade: int = 1,
     ) -> tuple[list[Entity], list[Relationship]]:
         passages = _split_text(text)
         sem = asyncio.Semaphore(_MAX_CONCURRENCY)
@@ -317,7 +318,7 @@ class GraphExtractor:
 
         for passage, result in zip(passages, raw_results):
             page_range = _extract_page_range(passage)
-            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range, effective_date=effective_date)
+            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range, effective_date=effective_date, security_grade=security_grade)
             all_entities.extend(ents)
             all_relationships.extend(rels)
 
@@ -473,7 +474,20 @@ class GraphExtractor:
         except Exception:
             pass
 
-        return await self.extract_from_text(content, rel_path, effective_date=effective_date)
+        # 보안등급 분류
+        security_grade = 1
+        try:
+            from backend.security.data_classification import classify_document
+            classification = classify_document(content, str(file_path))
+            security_grade = classification.grade
+        except Exception:
+            pass
+
+        return await self.extract_from_text(
+            content, rel_path,
+            effective_date=effective_date,
+            security_grade=security_grade,
+        )
 
     # 그래프 추출 제외 경로 (스킬, 설정 파일 등)
     _EXCLUDE_DIRS = {"Skills", ".graph", ".obsidian", "assets"}
@@ -736,6 +750,7 @@ class GraphExtractor:
         source_path: str,
         page_range: tuple[int | None, int | None] = (None, None),
         effective_date: str | None = None,
+        security_grade: int = 1,
     ) -> tuple[list[Entity], list[Relationship]]:
         entities: list[Entity] = []
         relationships: list[Relationship] = []
@@ -767,6 +782,9 @@ class GraphExtractor:
             # 시행일 기록 (문서 버전 관리)
             if effective_date:
                 props["effective_date"] = effective_date
+
+            # 보안등급
+            props["security_grade"] = security_grade
 
             # LLM이 추출한 구조화된 프로퍼티 병합
             raw_props = e_dict.get("properties", {})

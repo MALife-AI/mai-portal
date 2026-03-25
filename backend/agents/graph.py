@@ -906,6 +906,24 @@ async def invoke_agent_stream(
                 yield {"type": "token", "content": "\n\n죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
             break
 
+    # ── 감사 로그 기록 ──────────────────────────────────────────────
+    try:
+        from backend.security.audit_trail import log_agent_response
+        log_agent_response(
+            thread_id=_thread_id,
+            user_id=user_id,
+            user_roles=user_roles,
+            query=query,
+            referenced_sources=source_nodes,
+            skills_used=[],
+            security_grades=[
+                sn.get("security_grade", 1) for sn in source_nodes
+                if sn.get("security_grade")
+            ],
+        )
+    except Exception:
+        logger.debug("Audit log failed (non-fatal)", exc_info=True)
+
     yield {"type": "done"}
 
 

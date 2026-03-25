@@ -80,13 +80,27 @@ class IngestionPipeline:
         # Step 4: Post-processing (GFM 정규화)
         clean_md = post_process(raw_md)
 
-        # Step 5: Vault 저장 + Git 커밋
+        # Step 5: 보안등급 자동 분류
+        from backend.security.data_classification import classify_document
+        classification = classify_document(clean_md, file_path.name)
+        logger.info(
+            "Data classification: %s → Grade %d (%s)",
+            doc_name, classification.grade, classification.reason,
+        )
+
+        # Step 6: Vault 저장 + Git 커밋
         rel_path = dest_rel or f"Shared/{doc_name}.md"
         await write_document(
             rel_path,
             clean_md,
             user_id=user_id,
-            extra_meta={"source_format": ext, "ingested": True},
+            extra_meta={
+                "source_format": ext,
+                "ingested": True,
+                "security_grade": classification.grade,
+                "security_reason": classification.reason,
+                "policy": classification.policy,
+            },
         )
         return rel_path
 
