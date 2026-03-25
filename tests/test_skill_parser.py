@@ -84,7 +84,7 @@ def skills_vault(tmp_path: Path) -> Path:
 @pytest.fixture()
 def registry(skills_vault: Path) -> SkillRegistry:
     """Return a fully-loaded SkillRegistry for the skills_vault."""
-    reg = SkillRegistry(vault_root=skills_vault)
+    reg = SkillRegistry(skills_dir=skills_vault / "Skills" if (skills_vault / "Skills").exists() else skills_vault)
     reg.load_all()
     return reg
 
@@ -160,7 +160,7 @@ def test_skill_registry_list_entries_are_dicts(registry: SkillRegistry) -> None:
 
 def test_skill_registry_empty_when_no_skills_dir(tmp_path: Path) -> None:
     """SkillRegistry silently handles a missing Skills directory."""
-    reg = SkillRegistry(vault_root=tmp_path)
+    reg = SkillRegistry(skills_dir=tmp_path)
     reg.load_all()
 
     assert reg.list_skills() == []
