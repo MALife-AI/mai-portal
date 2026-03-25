@@ -1146,6 +1146,141 @@ function GovernanceTab() {
           ))}
         </div>
       )}
+
+      {/* 보안등급 현황 */}
+      <SecurityGradePanel />
+
+      {/* 감사 로그 */}
+      <AuditLogPanel />
+    </div>
+  )
+}
+
+function SecurityGradePanel() {
+  const [stats, setStats] = useState<any>(null)
+
+  useEffect(() => {
+    // 그래프에서 보안등급 분포 조회
+    fetch('/api/v1/graph/visualization', { headers: { 'X-User-Id': getUserId() } })
+      .then(r => r.json())
+      .then(d => {
+        const nodes = d.nodes || []
+        const grades: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
+        for (const n of nodes) {
+          const g = n.security_grade || n.properties?.security_grade || 1
+          grades[g] = (grades[g] || 0) + 1
+        }
+        setStats({ total: nodes.length, grades })
+      })
+      .catch(() => {})
+  }, [])
+
+  if (!stats) return null
+
+  const gradeConfig = [
+    { grade: 1, label: 'Grade 1 (학습용)', desc: '공개 약관, 보험 용어', color: '#34C759' },
+    { grade: 2, label: 'Grade 2 (참조용)', desc: '사규, UW 가이드, 보상 매뉴얼', color: '#F5A623' },
+    { grade: 3, label: 'Grade 3 (민감형)', desc: '고객 식별정보, 질병/사고 이력', color: '#FF3B30' },
+  ]
+
+  return (
+    <div className="panel p-4">
+      <p className="text-sm font-semibold text-surface-800 mb-3">데이터 보안등급 현황</p>
+      <div className="space-y-3">
+        {gradeConfig.map(({ grade, label, desc, color }) => {
+          const count = stats.grades[grade] || 0
+          const pct = stats.total > 0 ? (count / stats.total * 100) : 0
+          return (
+            <div key={grade}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                  <span className="text-xs font-semibold text-surface-900">{label}</span>
+                  <span className="text-2xs text-surface-600">{desc}</span>
+                </div>
+                <span className="text-xs font-mono font-bold" style={{ color }}>{count}개 ({pct.toFixed(0)}%)</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-surface-300 overflow-hidden">
+                <div className="h-full rounded-full" style={{ background: color, width: `${pct}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-2xs text-surface-600 mt-3">
+        Grade 2: IAM 권한 기반 접근 제어 · Grade 3: admin만 가명화 데이터 접근 · 학습 금지
+      </p>
+    </div>
+  )
+}
+
+function AuditLogPanel() {
+  const [logs, setLogs] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  function loadLogs() {
+    setLoading(true)
+    fetch('/api/v1/admin/audit/logs', { headers: { 'X-User-Id': getUserId() } })
+      .then(r => r.json())
+      .then(d => setLogs(d.logs || []))
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false))
+  }
+
+  const gradeColors: Record<number, string> = { 1: '#34C759', 2: '#F5A623', 3: '#FF3B30' }
+
+  return (
+    <div className="panel p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-surface-800">감사 로그 (Audit Trail)</p>
+        <div className="flex gap-2">
+          <button onClick={loadLogs} disabled={loading} className="btn-secondary text-xs flex items-center gap-1">
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+            조회
+          </button>
+          {logs.length > 0 && (
+            <button onClick={() => setExpanded(v => !v)} className="btn-secondary text-xs">
+              {expanded ? '접기' : '전체 보기'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {logs.length === 0 ? (
+        <p className="text-2xs text-surface-600">조회 버튼을 눌러 감사 로그를 확인하세요</p>
+      ) : (
+        <div className={cn('space-y-1 overflow-y-auto', expanded ? 'max-h-96' : 'max-h-48')}>
+          {logs.slice(0, expanded ? 50 : 10).map((log, i) => (
+            <div key={i} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-surface-200 text-2xs" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <span className="font-mono text-surface-600 shrink-0 w-28">{log.timestamp?.slice(0, 16)}</span>
+              <span className="font-semibold text-surface-800 shrink-0 w-16">{log.user_id}</span>
+              <span className="text-surface-700 flex-1 truncate">{log.query}</span>
+              <div className="flex gap-1 shrink-0">
+                {log.referenced_sources?.map((s: any, j: number) => (
+                  <span
+                    key={j}
+                    className="px-1 py-0.5 rounded font-mono"
+                    style={{
+                      fontSize: '9px',
+                      background: (gradeColors[s.security_grade] || '#34C759') + '20',
+                      color: gradeColors[s.security_grade] || '#34C759',
+                    }}
+                  >
+                    G{s.security_grade || 1}
+                  </span>
+                ))}
+              </div>
+              {log.max_security_grade >= 3 && (
+                <AlertTriangle size={11} className="text-status-error shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-2xs text-surface-500 mt-2">
+        참조 문서명, 페이지, 사용자 권한이 기록됩니다. Grade 3 접근 시 경고 표시.
+      </p>
     </div>
   )
 }

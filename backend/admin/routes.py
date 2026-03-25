@@ -1218,6 +1218,20 @@ async def get_infra_status(
     }
 
 
+# ─── 감사 로그 ───────────────────────────────────────────────────────────────
+
+@router.get("/audit/logs")
+async def get_audit_logs_api(
+    date: str | None = None,
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+):
+    require_admin(user_id, iam)
+    from backend.security.audit_trail import get_audit_logs
+    logs = get_audit_logs(date=date, limit=100)
+    return {"logs": logs, "total": len(logs)}
+
+
 # ─── 베어메탈 호스트 / 머신 관리 ─────────────────────────────────────────────
 
 import json as _json

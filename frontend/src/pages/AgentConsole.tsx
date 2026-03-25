@@ -429,6 +429,18 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
                     {idx + 1}
                   </span>
                   <span className="font-semibold">{node.name}</span>
+                  {(node as any).security_grade >= 2 && (
+                    <span
+                      className="px-1 py-0 rounded font-bold"
+                      style={{
+                        fontSize: '8px',
+                        background: (node as any).security_grade >= 3 ? '#FF3B3020' : '#F5A62320',
+                        color: (node as any).security_grade >= 3 ? '#FF3B30' : '#F5A623',
+                      }}
+                    >
+                      G{(node as any).security_grade}
+                    </span>
+                  )}
                   {node.source_titles && node.source_titles.length > 0 && (
                     <span style={{ color: 'var(--color-text-muted)', fontSize: '9px' }}>
                       | {node.source_titles[0]}{node.source_titles.length > 1 ? ` 외 ${node.source_titles.length - 1}건` : ''}
