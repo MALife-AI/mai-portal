@@ -253,6 +253,17 @@ def _extract_page_range(text: str) -> tuple[int | None, int | None]:
     return (min(pages), max(pages))
 
 
+def _extract_section_ref(text: str) -> str:
+    """텍스트에서 약관 조항 참조를 추출합니다 (예: 제1조, 제2조~제5조)."""
+    sections = re.findall(r'제\s*(\d+)\s*조', text)
+    if not sections:
+        return ""
+    nums = sorted(set(int(s) for s in sections))
+    if len(nums) == 1:
+        return f"제{nums[0]}조"
+    return f"제{nums[0]}조~제{nums[-1]}조"
+
+
 def _extract_source_doc_name(source_path: str) -> str:
     """출처 문서명 추출 (경로에서 파일명만)."""
     return Path(source_path).stem
@@ -318,7 +329,8 @@ class GraphExtractor:
 
         for passage, result in zip(passages, raw_results):
             page_range = _extract_page_range(passage)
-            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range, effective_date=effective_date, security_grade=security_grade)
+            section_ref = _extract_section_ref(passage)
+            ents, rels = self._build_graph_objects(result, source_path, page_range=page_range, effective_date=effective_date, security_grade=security_grade, section_ref=section_ref)
             all_entities.extend(ents)
             all_relationships.extend(rels)
 
@@ -751,6 +763,7 @@ class GraphExtractor:
         page_range: tuple[int | None, int | None] = (None, None),
         effective_date: str | None = None,
         security_grade: int = 1,
+        section_ref: str = "",
     ) -> tuple[list[Entity], list[Relationship]]:
         entities: list[Entity] = []
         relationships: list[Relationship] = []
@@ -785,6 +798,10 @@ class GraphExtractor:
 
             # 보안등급
             props["security_grade"] = security_grade
+
+            # 조항 참조 (제N조)
+            if section_ref:
+                props["section_ref"] = section_ref
 
             # LLM이 추출한 구조화된 프로퍼티 병합
             raw_props = e_dict.get("properties", {})

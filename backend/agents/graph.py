@@ -332,6 +332,7 @@ async def invoke_agent_stream(
                 ],
                 "page_start": props.get("page_start"),
                 "page_end": props.get("page_end"),
+                "section_ref": props.get("section_ref", ""),
                 "effective_date": props.get("effective_date"),
                 "version_hash": props.get("version_hash"),
                 "version_date": props.get("version_date"),

@@ -411,6 +411,11 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
                           출처: {node.source_titles.join(', ')}
                         </p>
                       )}
+                      {(node as any).section_ref && (
+                        <p className="text-2xs text-surface-600">
+                          위치: {(node as any).section_ref}
+                        </p>
+                      )}
                       {node.page_start != null && (
                         <p className="text-2xs text-surface-600">
                           페이지: {node.page_start}{node.page_end && node.page_end !== node.page_start ? `-${node.page_end}` : ''}

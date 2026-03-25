@@ -406,6 +406,7 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
               const color = CITE_COLORS[idx % CITE_COLORS.length]
               // 위치 정보 구성
               const location = [
+                (sn as any).section_ref || '',
                 sn.page_start != null ? `p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}` : '',
                 (sn as any).effective_date ? `시행 ${(sn as any).effective_date}` : '',
               ].filter(Boolean).join(' · ')
