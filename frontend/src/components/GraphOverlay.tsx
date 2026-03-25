@@ -333,6 +333,11 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                 linkDirectionalArrowRelPos={1}
                 linkLabel={(link: any) => link.relation_type || ''}
                 onNodeClick={(node: any) => setSelectedNode(node)}
+                nodeLabel={(node: any) => {
+                  const sn = sourceNodes.find(s => s.id === node.id)
+                  const docs = sn?.source_titles?.join(', ') || ''
+                  return `${node.name} (${node.type})${docs ? `\n📄 ${docs}` : ''}`
+                }}
                 cooldownTicks={60}
                 enableZoomInteraction={true}
                 enablePanInteraction={true}
@@ -355,6 +360,16 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                     <X size={12} />
                   </button>
                 </div>
+                {/* 문서명 (소스 노드인 경우) */}
+                {(() => {
+                  const sn = sourceNodes.find(s => s.id === selectedNode.id)
+                  return sn?.source_titles && sn.source_titles.length > 0 ? (
+                    <p className="text-2xs text-surface-600 mb-1">
+                      📄 {sn.source_titles.join(', ')}
+                      {sn.page_start != null && ` · p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}`}
+                    </p>
+                  ) : null
+                })()}
                 {/* 연결된 관계 표시 */}
                 <div className="flex flex-wrap gap-1 mt-1">
                   {graphData.links
@@ -389,6 +404,12 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
             <p className="text-2xs font-semibold text-surface-600 uppercase tracking-widest mb-1">참조 출처</p>
             {sourceNodes.map((sn, idx) => {
               const color = CITE_COLORS[idx % CITE_COLORS.length]
+              // 위치 정보 구성
+              const location = [
+                sn.page_start != null ? `p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}` : '',
+                (sn as any).effective_date ? `시행 ${(sn as any).effective_date}` : '',
+              ].filter(Boolean).join(' · ')
+
               return (
                 <div key={sn.id} className="flex items-start gap-2 text-2xs">
                   <span
@@ -399,7 +420,6 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <span className="font-semibold text-surface-900">{sn.name}</span>
-                    <span className="text-surface-600 ml-1">({sn.type})</span>
                     {sn.description && (
                       <span className="text-surface-600 ml-1">— {sn.description}</span>
                     )}
@@ -407,15 +427,8 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                       {sn.match_reason && (
                         <span className="text-gold-500">{sn.match_reason}</span>
                       )}
-                      {sn.source_titles && sn.source_titles.length > 0 && (
-                        <span className="text-surface-600 font-mono">
-                          출처: {sn.source_titles.join(', ')}
-                        </span>
-                      )}
-                      {sn.page_start != null && (
-                        <span className="text-surface-600 font-mono">
-                          p.{sn.page_start}{sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}
-                        </span>
+                      {location && (
+                        <span className="text-surface-600 font-mono">{location}</span>
                       )}
                     </div>
                   </div>
