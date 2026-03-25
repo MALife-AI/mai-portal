@@ -1156,6 +1156,7 @@ function GovernanceTab() {
 
 function DepartmentsTab() {
   const [departments, setDepartments] = useState<{ id: string; name: string; description: string }[]>([])
+  const [isSavingModel, setIsSavingModel] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [formId, setFormId] = useState('')
   const [formName, setFormName] = useState('')
