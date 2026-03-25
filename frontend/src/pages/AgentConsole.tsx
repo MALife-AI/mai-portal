@@ -397,8 +397,8 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
                     className="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-50 w-64 pointer-events-none"
                   >
                     <div
-                      className="rounded-lg p-2.5 shadow-xl text-left"
-                      style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+                      className="rounded-lg p-2.5 text-left"
+                      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
                     >
                       {node.match_reason && (
                         <p className="text-2xs font-semibold text-gold-500 mb-1">{node.match_reason}</p>
