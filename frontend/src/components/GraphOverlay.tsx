@@ -380,6 +380,49 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
               </div>
             )}
           </div>
+
+          {/* 각주 (Footnotes) */}
+          <div
+            className="px-4 py-3 space-y-1.5 overflow-y-auto"
+            style={{ borderTop: '1px solid var(--color-border)', maxHeight: expanded ? 200 : 140 }}
+          >
+            <p className="text-2xs font-semibold text-surface-600 uppercase tracking-widest mb-1">참조 출처</p>
+            {sourceNodes.map((sn, idx) => {
+              const color = CITE_COLORS[idx % CITE_COLORS.length]
+              return (
+                <div key={sn.id} className="flex items-start gap-2 text-2xs">
+                  <span
+                    className="inline-flex items-center justify-center rounded font-bold shrink-0 mt-0.5"
+                    style={{ fontSize: '8px', width: '16px', height: '16px', background: `${color}33`, color }}
+                  >
+                    {idx + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-surface-900">{sn.name}</span>
+                    <span className="text-surface-600 ml-1">({sn.type})</span>
+                    {sn.description && (
+                      <span className="text-surface-600 ml-1">— {sn.description}</span>
+                    )}
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                      {sn.match_reason && (
+                        <span className="text-gold-500">{sn.match_reason}</span>
+                      )}
+                      {sn.source_titles && sn.source_titles.length > 0 && (
+                        <span className="text-surface-600 font-mono">
+                          출처: {sn.source_titles.join(', ')}
+                        </span>
+                      )}
+                      {sn.page_start != null && (
+                        <span className="text-surface-600 font-mono">
+                          p.{sn.page_start}{sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </motion.div>
       </motion.div>
     </AnimatePresence>
