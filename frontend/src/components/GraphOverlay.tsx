@@ -14,6 +14,7 @@ interface SourceNode {
   name: string
   type: string
   description?: string
+  match_reason?: string
   source_titles: string[]
   page_start?: number | null
   page_end?: number | null
@@ -21,7 +22,7 @@ interface SourceNode {
 
 interface Props {
   sourceNodes: SourceNode[]
-  focusIndex: number // 0-based, which source was clicked
+  focusIndex: number
   onClose: () => void
 }
 
@@ -31,13 +32,20 @@ interface GNode extends NodeObject {
   type: string
   mentions: number
   isHighlighted?: boolean
+  isReferenced?: boolean      // 답변에 참조된 노드
   highlightColor?: string
   highlightIndex?: number
 }
 
+interface GLink extends LinkObject {
+  relation_type?: string
+  isReferencedPath?: boolean  // 참조 경로에 포함된 엣지
+}
+
 export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
   const [loading, setLoading] = useState(true)
-  const [graphData, setGraphData] = useState<{ nodes: GNode[]; links: LinkObject[] }>({ nodes: [], links: [] })
+  const [graphData, setGraphData] = useState<{ nodes: GNode[]; links: GLink[] }>({ nodes: [], links: [] })
+  const [selectedNode, setSelectedNode] = useState<GNode | null>(null)
   const [expanded, setExpanded] = useState(false)
   const graphRef = useRef<any>(null)
 
@@ -47,8 +55,9 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
     async function load() {
       setLoading(true)
       const allNodes = new Map<string, GNode>()
-      const allLinks: LinkObject[] = []
+      const allLinks: GLink[] = []
       const highlightIds = new Set<string>()
+      const referencedIds = new Set<string>(sourceNodes.map(sn => sn.id))
 
       // Map source node IDs to their citation index + color
       const idToIndex = new Map<string, number>()
@@ -77,7 +86,25 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
         }
 
         for (const e of data.edges) {
-          allLinks.push({ source: e.source, target: e.target })
+          const isRefPath = referencedIds.has(e.source) || referencedIds.has(e.target)
+          allLinks.push({
+            source: e.source,
+            target: e.target,
+            relation_type: e.relation_type || e.type || '',
+            isReferencedPath: isRefPath,
+          })
+        }
+
+        // Mark neighbor nodes of referenced nodes as "referenced"
+        for (const e of data.edges) {
+          if (referencedIds.has(e.source) && allNodes.has(e.target)) {
+            const n = allNodes.get(e.target)!
+            if (!n.isHighlighted) n.isReferenced = true
+          }
+          if (referencedIds.has(e.target) && allNodes.has(e.source)) {
+            const n = allNodes.get(e.source)!
+            if (!n.isHighlighted) n.isReferenced = true
+          }
         }
 
         // Also fetch subgraphs for other source nodes (shallow, depth=1)
@@ -109,7 +136,13 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
             }
           }
           for (const e of data.edges) {
-            allLinks.push({ source: e.source, target: e.target })
+            const isRefPath = referencedIds.has(e.source) || referencedIds.has(e.target)
+            allLinks.push({
+              source: e.source,
+              target: e.target,
+              relation_type: e.relation_type || e.type || '',
+              isReferencedPath: isRefPath,
+            })
           }
         }
 
@@ -173,13 +206,28 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
       ctx.font = 'bold 10px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(node.name, x, y + r + 10)
+    } else if (node.isReferenced) {
+      // 참조된 하위 노드: 점선 테두리 + 밝은 색
+      ctx.beginPath()
+      ctx.arc(x, y, 6, 0, 2 * Math.PI)
+      ctx.fillStyle = '#F3702140'
+      ctx.fill()
+      ctx.setLineDash([2, 2])
+      ctx.strokeStyle = '#F37021'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.setLineDash([])
+
+      ctx.fillStyle = '#F37021'
+      ctx.font = 'bold 8px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(node.name.slice(0, 12), x, y + 12)
     } else {
       ctx.beginPath()
       ctx.arc(x, y, r, 0, 2 * Math.PI)
       ctx.fillStyle = '#6b829e'
       ctx.fill()
 
-      // Label (smaller)
       ctx.fillStyle = '#6b829e88'
       ctx.font = '7px sans-serif'
       ctx.textAlign = 'center'
@@ -279,12 +327,57 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                   ctx.fillStyle = color
                   ctx.fill()
                 }}
-                linkColor={() => 'rgba(107, 130, 158, 0.3)'}
-                linkWidth={0.5}
+                linkColor={(link: any) => link.isReferencedPath ? 'rgba(243, 112, 33, 0.6)' : 'rgba(107, 130, 158, 0.2)'}
+                linkWidth={(link: any) => link.isReferencedPath ? 1.5 : 0.5}
+                linkDirectionalArrowLength={3}
+                linkDirectionalArrowRelPos={1}
+                linkLabel={(link: any) => link.relation_type || ''}
+                onNodeClick={(node: any) => setSelectedNode(node)}
                 cooldownTicks={60}
                 enableZoomInteraction={true}
                 enablePanInteraction={true}
               />
+            )}
+
+            {/* 선택된 노드 상세 패널 */}
+            {selectedNode && (
+              <div
+                className="absolute bottom-4 left-4 right-4 rounded-lg p-3"
+                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: selectedNode.highlightColor || (selectedNode.isReferenced ? '#F37021' : '#6b829e') }} />
+                    <span className="text-xs font-semibold text-surface-900">{selectedNode.name}</span>
+                    <span className="text-2xs font-mono text-surface-600">{selectedNode.type}</span>
+                  </div>
+                  <button onClick={() => setSelectedNode(null)} className="text-surface-600 hover:text-surface-900">
+                    <X size={12} />
+                  </button>
+                </div>
+                {/* 연결된 관계 표시 */}
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {graphData.links
+                    .filter((l: any) => {
+                      const src = typeof l.source === 'object' ? l.source.id : l.source
+                      const tgt = typeof l.target === 'object' ? l.target.id : l.target
+                      return src === selectedNode.id || tgt === selectedNode.id
+                    })
+                    .slice(0, 8)
+                    .map((l: any, i: number) => {
+                      const src = typeof l.source === 'object' ? l.source : graphData.nodes.find(n => n.id === l.source)
+                      const tgt = typeof l.target === 'object' ? l.target : graphData.nodes.find(n => n.id === l.target)
+                      const other = (src as any)?.id === selectedNode.id ? tgt : src
+                      return (
+                        <span key={i} className="text-2xs px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}>
+                          <span className="text-gold-500">{l.relation_type || '관계'}</span>
+                          <span className="text-surface-600"> → </span>
+                          <span className="text-surface-800">{(other as any)?.name || '?'}</span>
+                        </span>
+                      )
+                    })}
+                </div>
+              </div>
             )}
           </div>
         </motion.div>
