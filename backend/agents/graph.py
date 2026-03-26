@@ -868,8 +868,10 @@ async def invoke_agent_stream(
                         "content": tool_result[:500],
                     })
 
-                # 메모리 도구만 호출된 경우 → 루프 재진입하여 답변 생성
+                # 메모리 도구만 호출된 경우 → 루프 재진입 (도구 유지, 1회 제한)
                 if not non_memory_calls:
+                    # recall_memory 무한 반복 방지: 메모리 도구를 tools에서 제거
+                    tools = [t for t in tools if t.get("function", {}).get("name") not in ("save_memory", "recall_memory")]
                     continue
                 # 메모리 + 다른 스킬도 함께 호출된 경우 → 다른 스킬은 아래에서 처리
                 tool_calls_acc = non_memory_calls
