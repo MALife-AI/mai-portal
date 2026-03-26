@@ -258,6 +258,7 @@ async def invoke_agent_stream(
     # ── GraphRAG 컨텍스트 검색 ────────────────────────────────────────
     source_nodes: list[dict[str, Any]] = []
     graph_context: str = ""
+    _search_query = query  # rewrite 시 변경될 수 있음
     try:
         from backend.graph.store import GraphStore
         from backend.graph.graphrag import GraphRAGEngine
@@ -280,6 +281,51 @@ async def invoke_agent_stream(
             mode="hybrid", n_results=5,
             effective_after=_date_effective,
         )
+
+        # ── Query Rewrite: 유사도 낮으면 LLM으로 쿼리 재작성 후 재검색 ──
+        _SCORE_THRESHOLD = 0.35
+        top_score = max((r.get("score", 0.0) for r in rag_result.vector_results), default=0.0)
+        if top_score < _SCORE_THRESHOLD and rag_result.vector_results:
+            logger.info("Low relevance (score=%.3f < %.2f) — attempting query rewrite", top_score, _SCORE_THRESHOLD)
+            try:
+                from openai import AsyncOpenAI as _RewriteClient
+                _rw_url = server_url or getattr(_settings, "llama_server_url", "http://localhost:8801/v1")
+                _rw_client = _RewriteClient(base_url=_rw_url, api_key="sk-local")
+                _rw_model = getattr(_settings, "vlm_model", "qwen3.5-4b")
+                _rw_resp = await _rw_client.chat.completions.create(
+                    model=_rw_model,
+                    messages=[
+                        {"role": "system", "content": (
+                            "사용자의 검색 쿼리를 보험/금융 도메인에 맞게 재작성하세요. "
+                            "핵심 키워드를 추출하고, 동의어/관련어를 포함하여 검색 정확도를 높이세요. "
+                            "재작성된 쿼리만 출력하세요. 설명 없이 한 줄로."
+                        )},
+                        {"role": "user", "content": query},
+                    ],
+                    max_tokens=100,
+                    temperature=0.3,
+                )
+                rewritten = (_rw_resp.choices[0].message.content or "").strip()
+                if rewritten and rewritten != query:
+                    logger.info("Query rewrite: '%s' → '%s'", query, rewritten)
+                    _search_query = rewritten
+                    rag_result = await engine.search(
+                        query=rewritten, user_id=user_id, user_roles=user_roles,
+                        mode="hybrid", n_results=5,
+                        effective_after=_date_effective,
+                    )
+            except Exception:
+                logger.debug("Query rewrite failed (non-fatal)", exc_info=True)
+
+        # ── 검색 품질 검증: vector score + graph entity 매칭 동시 확인 ──
+        final_top_score = max((r.get("score", 0.0) for r in rag_result.vector_results), default=0.0)
+        has_graph_match = bool(rag_result.matched_entities)
+        _insufficient = (final_top_score < _SCORE_THRESHOLD) and (not has_graph_match)
+        if _insufficient:
+            logger.info(
+                "Insufficient context after search (score=%.3f, graph_match=%s) — early return",
+                final_top_score, has_graph_match,
+            )
 
         matched_ids = {(e.get("id") or e.get("name", "")) for e in rag_result.matched_entities}
 
@@ -354,6 +400,18 @@ async def invoke_agent_stream(
         "reasoning": "",
         "source_nodes": source_nodes,
     }
+
+    # ── 검색 품질 미달 시 조기 반환 (할루시네이션 방지) ──────────────
+    if _insufficient:
+        yield {
+            "type": "token",
+            "content": (
+                "현재 등록된 자료에서 관련 정보를 찾지 못했습니다. "
+                "질문을 다른 표현으로 바꿔보시거나, 관련 문서가 업로드되어 있는지 확인해 주세요."
+            ),
+        }
+        yield {"type": "done"}
+        return
 
     # ── OpenAI tool calling (Unsloth auto-healing loop) ──────────────
     from openai import AsyncOpenAI
@@ -563,11 +621,13 @@ async def invoke_agent_stream(
         "- 예시: ask_user(message='이 약관은 여러 시점의 버전이 있습니다. 어느 시점을 기준으로 안내드릴까요?', "
         "options=[{label:'2025-01-15 (현재)', value:'현재 버전'}, {label:'2024-06-01', value:'2024-06-01 버전'}])\n"
         "- 사용자가 특정 날짜나 '최신'을 언급하면 해당 버전의 출처만 인용하세요.\n\n"
-        "## 사내 전용 가드레일\n"
-        "- 당신은 우리 회사(사내) 전용 어시스턴트입니다. 참고 출처에 있는 문서만 기반으로 답변하세요.\n"
-        "- 타사(삼성생명, KB손해보험, DB손해보험, 현대해상, 메리츠 등) 상품을 언급하거나 선택지로 제시하지 마세요.\n"
+        "## 사내 전용 가드레일 (최우선)\n"
+        "- 당신은 우리 회사(사내) 전용 어시스턴트입니다. **참고 출처에 있는 문서만** 기반으로 답변하세요.\n"
+        "- 출처에 없는 내용을 추측하거나 지어내지 마세요. 출처 없이 답변하는 것은 금지입니다.\n"
+        "- 타사(삼성생명, KB손해보험, DB손해보험, 현대해상, 메리츠, 한화생명 등) 상품을 언급하거나 선택지로 제시하지 마세요.\n"
         "- ask_user의 options에는 반드시 참고 출처에 존재하는 엔티티만 넣으세요. 출처에 없는 보험사/상품을 생성하지 마세요.\n"
-        "- 출처에서 해당 정보를 찾을 수 없으면 '현재 등록된 자료에서 관련 정보를 찾지 못했습니다'라고 안내하세요.\n\n"
+        "- 출처에서 해당 정보를 찾을 수 없으면 반드시 '현재 등록된 자료에서 관련 정보를 찾지 못했습니다'라고 안내하세요.\n"
+        "- 일반 상식이나 학습된 지식으로 보험 상품/약관을 설명하지 마세요. 오직 참고 출처만 사용하세요.\n\n"
         "## 인용 규칙\n"
         "- 답변 시 정보의 출처를 [1], [2] 형태로 인라인 인용하세요.\n"
         "- 답변 마지막에 '---' 구분선 후 출처 목록을 표기하세요.\n"
@@ -635,7 +695,7 @@ async def invoke_agent_stream(
                 tools=_use_tools,
                 tool_choice="auto" if _use_tools else None,
                 max_tokens=768,
-                temperature=0.6,
+                temperature=0.3,
                 stream=True,
             )
             _is_continuation = False
