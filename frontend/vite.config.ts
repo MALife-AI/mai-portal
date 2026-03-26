@@ -13,11 +13,11 @@ export default defineConfig({
     port: 9000,
     proxy: {
       '/api': {
-        target: 'http://localhost:9001',
+        target: 'http://175.117.225.76:9001',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:9001',
+        target: 'http://175.117.225.76:9001',
         changeOrigin: true,
       },
     },

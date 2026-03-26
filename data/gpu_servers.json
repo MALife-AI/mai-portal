@@ -2,8 +2,15 @@
   {
     "id": "gpu-14b",
     "name": "Qwen3 14B",
-    "url": "http://localhost:8801/v1",
+    "url": "http://175.117.225.76:8801/v1",
     "model": "qwen3-14b",
     "description": "GPU 서버 (RTX 4090)"
+  },
+  {
+    "id": "gpu-27b",
+    "name": "Qwen3.5 27B",
+    "url": "http://175.117.225.76:8801/v1",
+    "model": "qwen3.5-27b",
+    "description": "GPU 서버 (RTX 4090) — Q4_K_M 양자화"
   }
 ]

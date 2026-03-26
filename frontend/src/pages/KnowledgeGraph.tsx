@@ -546,6 +546,9 @@ export default function KnowledgeGraph() {
   const [graphData, setGraphData] = useState<GraphVisualizationData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isBuilding, setIsBuilding] = useState(false)
+  const [buildProgress, setBuildProgress] = useState<{
+    status: string; total_files: number; processed: number; entities: number; relationships: number; current_file: string
+  } | null>(null)
 
   // Search / filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -608,16 +611,34 @@ export default function KnowledgeGraph() {
 
   async function handleBuildGraph() {
     setIsBuilding(true)
+    setBuildProgress(null)
     try {
-      const result = await graphApi.buildGraph()
-      toast.success(
-        '그래프 빌드 완료',
-        `엔티티 ${result.entities}개, 관계 ${result.relationships}개 추가됨`,
-      )
-      await fetchData()
+      await graphApi.buildGraph()
+      // 비동기 빌드 — 2초마다 진행 상황 폴링
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/v1/graph/build/progress', { headers: { 'X-User-Id': userId } })
+          const p = await r.json()
+          setBuildProgress(p)
+          if (p.status === 'completed') {
+            clearInterval(poll)
+            setIsBuilding(false)
+            setBuildProgress(null)
+            toast.success(
+              '그래프 빌드 완료',
+              `엔티티 ${p.entities ?? 0}개, 관계 ${p.relationships ?? 0}개`,
+            )
+            await fetchData()
+          } else if (p.status === 'error' || p.status === 'idle') {
+            clearInterval(poll)
+            setIsBuilding(false)
+            setBuildProgress(null)
+            if (p.status === 'error') toast.error('그래프 빌드 실패', p.current_file || '알 수 없는 오류')
+          }
+        } catch { /* ignore */ }
+      }, 2000)
     } catch (err) {
       toast.error('그래프 빌드 실패', String(err))
-    } finally {
       setIsBuilding(false)
     }
   }
@@ -907,6 +928,36 @@ export default function KnowledgeGraph() {
           <RefreshCw size={13} className={cn(isLoading && 'animate-spin')} />
         </button>
       </div>
+
+      {/* Build progress bar */}
+      <AnimatePresence>
+        {isBuilding && buildProgress && buildProgress.status === 'running' && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mx-4 mb-2 p-3 rounded-md text-xs"
+            style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
+          >
+            <div className="flex items-center justify-between mb-1.5 text-surface-700">
+              <span>{buildProgress.processed} / {buildProgress.total_files} 파일</span>
+              <span className="font-mono">{buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+              <motion.div
+                className="h-full rounded-full bg-gold-500"
+                initial={{ width: 0 }}
+                animate={{ width: `${buildProgress.total_files > 0 ? (buildProgress.processed / buildProgress.total_files * 100) : 0}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
+              <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
+              <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Main split area ──────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
