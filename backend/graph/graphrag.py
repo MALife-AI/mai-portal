@@ -703,8 +703,8 @@ class GraphRAGEngine:
                 header += f" > {heading}"
             header += f" (score={score:.3f})"
             lines.append(header)
-            # Include up to 500 chars of the chunk
-            lines.append(doc[:500].strip())
+            # Include up to 800 chars of the chunk
+            lines.append(doc[:800].strip())
             lines.append("")
         return "\n".join(lines)
 

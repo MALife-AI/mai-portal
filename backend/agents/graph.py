@@ -637,7 +637,7 @@ async def invoke_agent_stream(
         )
     if graph_context:
         system_prompt += (
-            f"\n\n관련 컨텍스트:\n{graph_context[:1000]}"
+            f"\n\n관련 컨텍스트:\n{graph_context[:3000]}"
         )
 
     # 세션 메모리 주입
@@ -655,8 +655,8 @@ async def invoke_agent_stream(
         system_prompt += f"\n\n[사용자 지시사항]\n{truncated}"
 
     # 시스템 프롬프트 길이 제한 (토큰 ≈ 글자수/2 기준, 여유분 확보)
-    if len(system_prompt) > 3000:
-        system_prompt = system_prompt[:3000] + "\n\n(컨텍스트 축소됨)"
+    if len(system_prompt) > 6000:
+        system_prompt = system_prompt[:6000] + "\n\n(컨텍스트 축소됨)"
         logger.info("System prompt truncated to 3000 chars")
 
     messages: list[dict[str, Any]] = [
