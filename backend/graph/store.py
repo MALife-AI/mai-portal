@@ -444,10 +444,12 @@ class GraphStore:
         nodes = []
         for node_id, data in self._graph.nodes(data=True):
             props = data.get("properties", {})
+            namespace = node_id.split("::", 1)[0] if "::" in node_id else None
             nodes.append({
                 "id": node_id,
                 "name": data.get("name", node_id),
                 "type": data.get("entity_type", "concept"),
+                "namespace": namespace,
                 "mentions": data.get("mentions", 0),
                 "source_paths": data.get("source_paths", []),
                 "effective_date": props.get("effective_date", ""),

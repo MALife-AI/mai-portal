@@ -56,6 +56,20 @@ class Entity:
     source_paths: list[str] = field(default_factory=list)
     mentions: int = 0
 
+    @property
+    def namespace(self) -> str | None:
+        """네임스페이스 접두어 반환 (없으면 None)."""
+        if "::" in self.id:
+            return self.id.split("::", 1)[0]
+        return None
+
+    @property
+    def base_id(self) -> str:
+        """네임스페이스 제외한 순수 ID."""
+        if "::" in self.id:
+            return self.id.split("::", 1)[1]
+        return self.id
+
 
 @dataclass
 class Relationship:

@@ -492,6 +492,10 @@ class GraphRAGEngine:
                 if prop_parts:
                     line += f" ({', '.join(prop_parts)})"
 
+                # 네임스페이스 (소속 상품/문서 구분)
+                if entity.namespace:
+                    line += f" [범위: {entity.namespace}]"
+
                 # 출처 문서
                 source_doc = entity.properties.get("source_document")
                 if source_doc:

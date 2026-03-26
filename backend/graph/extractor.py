@@ -198,6 +198,45 @@ def _slugify(name: str) -> str:
     return slug or "entity"
 
 
+# 문맥 의존 엔티티 타입 — 동일 이름이 소속 문서에 따라 다른 의미
+_NAMESPACED_TYPES: frozenset[str] = frozenset({"coverage", "term"})
+
+
+def _derive_namespace(source_path: str) -> str:
+    """소스 문서 경로에서 네임스페이스 슬러그 파생.
+
+    예: "Public/1-5종수술특약(간편고지)_약관_2504.md" → "1_5종수술특약_간편고지"
+    """
+    stem = Path(source_path).stem
+    # 날짜/버전 접미사 제거: _약관_2504, _사업방법서_20250401, _v1 등
+    stem = re.sub(r"_(약관|사업방법서|산출방법서)_\d+(_v\d+)?$", "", stem)
+    return _slugify(stem)
+
+
+def _make_entity_id(
+    name: str,
+    entity_type: str,
+    source_path: str,
+    parent_product: str | None = None,
+) -> str:
+    """엔티티 ID 생성 — 문맥 의존 타입은 네임스페이스 부여.
+
+    - coverage, term → "{namespace}::{slug}" (문서별 구분)
+    - product, condition, organization 등 → "{slug}" (전역 공유)
+    """
+    slug = _slugify(name)
+    if entity_type not in _NAMESPACED_TYPES:
+        return slug
+
+    # LLM이 추출한 parent_product 우선, 없으면 source_path에서 파생
+    if parent_product:
+        namespace = _slugify(parent_product)
+    else:
+        namespace = _derive_namespace(source_path)
+
+    return f"{namespace}::{slug}"
+
+
 def _split_text(text: str, chunk_size: int = _CHUNK_SIZE) -> list[str]:
     paragraphs = re.split(r"\n{2,}", text)
     chunks: list[str] = []
@@ -775,8 +814,11 @@ class GraphExtractor:
             name = str(e_dict.get("name", "")).strip()
             if not name:
                 continue
-            entity_id = _slugify(name)
             entity_type = str(e_dict.get("type", "concept")).lower()
+            # parent_product를 먼저 확인해서 네임스페이스 결정에 사용
+            raw_props_pre = e_dict.get("properties", {})
+            parent_product = raw_props_pre.get("parent_product") if isinstance(raw_props_pre, dict) else None
+            entity_id = _make_entity_id(name, entity_type, source_path, parent_product)
             description = str(e_dict.get("description", ""))
 
             # 보험 도메인 프로퍼티 수집
