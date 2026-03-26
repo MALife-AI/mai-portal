@@ -587,20 +587,17 @@ async def invoke_agent_stream(
     source_block = "\n".join(numbered_sources) if numbered_sources else ""
 
     system_prompt = (
-        "당신은 금융/보험 도메인 전문 어시스턴트입니다. 한국어로 정확하고 친절하게 답변하세요.\n\n"
+        "당신은 금융/보험 도메인 전문 어시스턴트입니다. 한국어로 정확하고 친절하게 답변하세요.\n"
+        "답변은 핵심만 간결하게 작성하세요. 불필요한 배경 설명이나 반복을 피하고, 질문에 직접 답하세요.\n\n"
         "## 최우선 규칙: 도구 호출 의무\n"
         "당신은 도구를 직접 호출하는 주체입니다. 사용자에게 절대로 도구/함수 사용법을 설명하지 마세요.\n"
         "금지 표현: '~함수를 사용하면', '~를 호출하면', '~코드를 입력하면', '~를 통해 확인할 수 있습니다'\n\n"
-        "## 필수 정보 부족 시: ask_user 도구 호출\n"
-        "도구를 호출하는 데 필수 파라미터(상품코드, 고객번호, 증권번호 등)가 부족하면:\n"
-        "1. 텍스트로 질문하지 말고 반드시 ask_user 도구를 호출하세요.\n"
-        "2. options에는 반드시 실제 선택 가능한 구체적 값을 넣으세요.\n"
-        "   - 좋은 예: [{label:'무배당 건강보험', value:'무배당 건강보험'}, {label:'종합보험 플러스', value:'종합보험 플러스'}]\n"
-        "   - 나쁜 예: [{label:'상품명 입력', value:'product_name'}, {label:'상품코드 입력', value:'product_code'}]\n"
-        "3. 참고 출처에 있는 엔티티명을 options으로 활용하세요.\n"
-        "4. 구체적 선택지를 제공할 수 없으면 options를 빈 배열로 두고 allow_custom_input=true로 설정하세요.\n"
-        "   그러면 사용자에게 바로 입력 필드가 표시됩니다.\n"
-        "5. 사용자가 선택/입력하면 즉시 해당 도구를 호출하세요.\n\n"
+        "## ask_user 도구 사용 원칙 (최소화)\n"
+        "ask_user는 정말 핵심 정보가 없어서 답변 자체가 불가능할 때만 1회 사용하세요.\n"
+        "- 참고 출처나 대화 맥락에서 추론 가능한 정보는 직접 판단하여 바로 답변하세요.\n"
+        "- 상품이 1~2개뿐이면 묻지 말고 모두 포함하여 답변하세요.\n"
+        "- ask_user 호출 시 options에는 구체적 선택지를 넣되, 한 대화에서 ask_user는 최대 1회만 사용하세요.\n"
+        "- 사용자가 선택/입력하면 즉시 해당 도구를 호출하세요.\n\n"
         "## 질문 의도 분류\n"
         "사용자 질문을 먼저 분류한 뒤 적절한 도구를 호출하세요:\n\n"
         "**정의/개념 질문** (~이 뭐야, ~이 뭔지, ~란, ~의 의미, ~설명해줘):\n"
@@ -616,15 +613,12 @@ async def invoke_agent_stream(
         "**규정/절차 질문** (~규정, ~절차, ~조건, ~방법, ~할 수 있어):\n"
         "→ search-regulation 호출\n\n"
         "## 문서 버전 규칙\n"
-        "- 참고 출처에 같은 문서의 여러 버전(시점)이 있을 수 있습니다.\n"
-        "- 여러 버전이 감지되면 답변하기 전에 반드시 ask_user 도구로 어떤 시점의 내용을 기준으로 안내할지 물어보세요.\n"
-        "- 예시: ask_user(message='이 약관은 여러 시점의 버전이 있습니다. 어느 시점을 기준으로 안내드릴까요?', "
-        "options=[{label:'2025-01-15 (현재)', value:'현재 버전'}, {label:'2024-06-01', value:'2024-06-01 버전'}])\n"
-        "- 사용자가 특정 날짜나 '최신'을 언급하면 해당 버전의 출처만 인용하세요.\n\n"
-        "## 사내 전용 가드레일 (최우선)\n"
-        "- 당신은 우리 회사(사내) 전용 어시스턴트입니다. **참고 출처에 있는 문서만** 기반으로 답변하세요.\n"
-        "- 출처에 없는 내용을 추측하거나 지어내지 마세요. 출처 없이 답변하는 것은 금지입니다.\n"
-        "- 타사(삼성생명, KB손해보험, DB손해보험, 현대해상, 메리츠, 한화생명 등) 상품을 언급하거나 선택지로 제시하지 마세요.\n"
+        "- 참고 출처에 같은 문서의 여러 버전이 있으면, 기본적으로 최신 버전을 기준으로 답변하세요.\n"
+        "- 사용자가 특정 날짜를 언급한 경우에만 해당 버전을 인용하세요.\n"
+        "- 버전 선택을 위해 ask_user를 호출하지 마세요.\n\n"
+        "## 사내 전용 가드레일\n"
+        "- 당신은 우리 회사(사내) 전용 어시스턴트입니다. 참고 출처에 있는 문서만 기반으로 답변하세요.\n"
+        "- 타사(삼성생명, KB손해보험, DB손해보험, 현대해상, 메리츠 등) 상품을 언급하거나 선택지로 제시하지 마세요.\n"
         "- ask_user의 options에는 반드시 참고 출처에 존재하는 엔티티만 넣으세요. 출처에 없는 보험사/상품을 생성하지 마세요.\n"
         "- 출처에서 해당 정보를 찾을 수 없으면 반드시 '현재 등록된 자료에서 관련 정보를 찾지 못했습니다'라고 안내하세요.\n"
         "- 일반 상식이나 학습된 지식으로 보험 상품/약관을 설명하지 마세요. 오직 참고 출처만 사용하세요.\n\n"
@@ -639,8 +633,7 @@ async def invoke_agent_stream(
         system_prompt += f"\n\n참고 출처:\n{source_block}"
     if has_multiple_versions:
         system_prompt += (
-            "\n\n⚠️ 주의: 위 출처에 같은 문서의 여러 버전이 포함되어 있습니다. "
-            "반드시 ask_user 도구를 호출하여 사용자에게 어느 시점의 약관/규정을 기준으로 안내할지 먼저 확인하세요."
+            "\n\n참고: 출처에 같은 문서의 여러 버전이 있습니다. 최신 버전을 기준으로 답변하세요."
         )
     if graph_context:
         system_prompt += (
@@ -669,18 +662,40 @@ async def invoke_agent_stream(
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
     ]
-    # 이전 대화 히스토리 주입 (최근 턴, 토큰 절약을 위해 내용 축소)
+    # 이전 대화 히스토리 주입: 롤링 요약 + 최근 턴 (Summary Buffer 패턴)
     if history:
-        for h in history[-6:]:  # 최대 6턴
+        # 클라이언트가 보낸 history 우선 (기존 호환)
+        for h in history[-6:]:
             content = h.get("content", "")
             if len(content) > 300:
                 content = content[:300] + "..."
             messages.append({"role": h.get("role", "user"), "content": content})
+    else:
+        # 서버 저장본에서 요약 + 최근 턴 로드
+        _summary, _recent_turns = session_mem.get_history_for_context(recent_k=3)
+        if _summary:
+            messages.append({
+                "role": "user",
+                "content": f"[이전 대화 요약]\n{_summary}",
+            })
+            messages.append({
+                "role": "assistant",
+                "content": "네, 이전 대화 내용을 참고하겠습니다.",
+            })
+        for h in _recent_turns:
+            content = h.get("content", "")
+            if len(content) > 500:
+                content = content[:500] + "..."
+            messages.append({"role": h.get("role", "user"), "content": content})
     messages.append({"role": "user", "content": query})
+
+    # 사용자 질문을 히스토리에 자동 저장
+    session_mem.append_turn("user", query)
 
     # ── Auto-healing tool calling loop ────────────────────────────────
     max_iterations = 5
     _is_continuation = False
+    _full_response_text = ""  # 전체 응답 누적 (히스토리 저장용)
     for _ in range(max_iterations):
         try:
             # continuation 시에는 tools 없이 텍스트만 생성
@@ -694,9 +709,10 @@ async def invoke_agent_stream(
                 messages=messages,
                 tools=_use_tools,
                 tool_choice="auto" if _use_tools else None,
-                max_tokens=768,
+                max_tokens=4096,
                 temperature=0.3,
                 stream=True,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
             _is_continuation = False
 
@@ -718,6 +734,7 @@ async def invoke_agent_stream(
                 # 텍스트 토큰 — 즉시 전송하지 않고 버퍼에 누적
                 if delta.content:
                     text_acc += delta.content
+                    _full_response_text += delta.content
                     pending_tokens.append({"type": "token", "content": delta.content})
 
                 # tool call 누적
@@ -765,6 +782,7 @@ async def invoke_agent_stream(
                     "options": options,
                     "allow_custom_input": True,
                 }
+                session_mem.append_turn("assistant", msg)
                 yield {"type": "done"}
                 return
 
@@ -797,12 +815,15 @@ async def invoke_agent_stream(
                     args = _json.loads(tc["arguments"]) if tc["arguments"] else {}
                 except _json.JSONDecodeError:
                     args = {}
+                clarification_msg = args.get("message", "추가 정보가 필요합니다.")
                 yield {
                     "type": "clarification",
-                    "message": args.get("message", "추가 정보가 필요합니다."),
+                    "message": clarification_msg,
                     "options": args.get("options", []),
                     "allow_custom_input": args.get("allow_custom_input", True),
                 }
+                # clarification도 assistant 턴으로 히스토리에 저장
+                session_mem.append_turn("assistant", clarification_msg)
                 yield {"type": "done"}
                 return  # 사용자 응답 대기 — 루프 종료
 
@@ -972,6 +993,19 @@ async def invoke_agent_stream(
                 yield {"type": "token", "content": "\n\n죄송합니다. 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}
             break
 
+    # ── 어시스턴트 응답을 히스토리에 자동 저장 ──────────────────────
+    if _full_response_text:
+        session_mem.append_turn("assistant", _full_response_text)
+
+    # ── 롤링 요약 생성 (비동기, 백그라운드) ──────────────────────────
+    if session_mem.needs_summarization(threshold=6):
+        try:
+            old_summary, turns_to_summarize = session_mem.get_turns_to_summarize(keep_recent=3)
+            if turns_to_summarize:
+                await _generate_rolling_summary(client, model_name, old_summary, turns_to_summarize, session_mem)
+        except Exception:
+            logger.debug("Rolling summary generation failed (non-fatal)", exc_info=True)
+
     # ── 감사 로그 기록 ──────────────────────────────────────────────
     try:
         from backend.security.audit_trail import log_agent_response
@@ -991,6 +1025,47 @@ async def invoke_agent_stream(
         logger.debug("Audit log failed (non-fatal)", exc_info=True)
 
     yield {"type": "done"}
+
+
+async def _generate_rolling_summary(
+    client: Any,
+    model_name: str,
+    old_summary: str,
+    turns: list[dict[str, str]],
+    session_mem: Any,
+) -> None:
+    """오래된 대화 턴들을 요약하여 session_mem에 저장합니다."""
+    # 요약 대상 대화를 텍스트로 변환
+    conversation_text = ""
+    for t in turns:
+        role = "사용자" if t.get("role") == "user" else "어시스턴트"
+        content = t.get("content", "")[:500]
+        conversation_text += f"{role}: {content}\n"
+
+    prompt_parts = ["아래 대화 내용을 핵심만 간결하게 요약해주세요. 200자 이내로 작성하세요.\n"]
+    if old_summary:
+        prompt_parts.append(f"[기존 요약]\n{old_summary}\n")
+    prompt_parts.append(f"[새 대화]\n{conversation_text}")
+    prompt_parts.append("\n요약:")
+
+    try:
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "당신은 대화를 간결하게 요약하는 어시스턴트입니다. 핵심 정보만 200자 이내로 요약하세요."},
+                {"role": "user", "content": "\n".join(prompt_parts)},
+            ],
+            max_tokens=256,
+            temperature=0.1,
+            stream=False,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        summary = response.choices[0].message.content.strip()
+        if summary:
+            session_mem.save_summary(summary)
+            logger.info("Rolling summary generated: thread=%s, len=%d", session_mem.thread_id, len(summary))
+    except Exception as exc:
+        logger.warning("Rolling summary LLM call failed: %s", exc)
 
 
 async def get_thread_history(thread_id: str) -> list[dict[str, Any]]:

@@ -1,9 +1,8 @@
 """LLM 팩토리: provider 설정에 따라 적절한 ChatModel 인스턴스 반환.
 
 지원 provider:
-- "openai": ChatOpenAI (기본, API 키 필요)
+- "llama_server": llama-server OpenAI 호환 API (기본)
 - "claude_wrapper": Claude Code API Wrapper HTTP 서버를 LangChain ChatModel로 래핑
-- "ollama": Ollama 로컬 모델 (ChatOllama)
 
 모든 반환값은 LangChain BaseChatModel 인터페이스를 따르므로
 기존 LangGraph 노드 코드 변경 없이 교체 가능합니다.
@@ -111,7 +110,7 @@ def create_chat_llm(
     """설정에 따라 적절한 LLM 인스턴스를 생성하여 반환.
 
     Args:
-        provider: "openai", "claude_wrapper", "ollama". None이면 settings.vlm_provider 사용.
+        provider: "llama_server", "claude_wrapper". None이면 settings.vlm_provider 사용.
         model: 모델명 오버라이드. None이면 settings.vlm_model 사용.
         temperature: 생성 온도. 기본 0 (결정적).
 
@@ -128,22 +127,6 @@ def create_chat_llm(
             model_name="claude-wrapper",
         )
 
-    if provider == "ollama":
-        logger.info("LLM factory: using Ollama model=%s", model_name)
-        try:
-            from langchain_ollama import ChatOllama
-        except ImportError:
-            raise ImportError(
-                "langchain-ollama 패키지가 필요합니다: pip install langchain-ollama"
-            )
-        return ChatOllama(
-            model=model_name,
-            temperature=temperature,
-            base_url=getattr(settings, "ollama_base_url", "http://localhost:11434"),
-            num_ctx=4096,
-            num_predict=1024,
-        )
-
     if provider == "llama_server":
         llama_url = getattr(settings, "llama_server_url", "http://localhost:8801/v1")
         logger.info("LLM factory: using llama-server at %s, model=%s", llama_url, model_name)
@@ -153,7 +136,7 @@ def create_chat_llm(
             api_key="sk-no-key-required",
             base_url=llama_url,
             temperature=temperature,
-            max_tokens=1024,
+            max_tokens=4096,
         )
 
 
@@ -191,12 +174,3 @@ def get_routed_client(query: str) -> tuple[str, str]:
     else:
         logger.info("Smart Router: simple query → light server (%s)", light_url)
         return light_url, settings.vlm_model
-
-    # 기본: OpenAI
-    logger.info("LLM factory: using OpenAI model=%s", model_name)
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(
-        model=model_name,
-        api_key=settings.openai_api_key,
-        temperature=temperature,
-    )

@@ -1,80 +1,55 @@
-# ──────────────────────────────────────
-# MaLife Lake IAM Configuration
-# Configuration as Code (RBAC + Ownership)
-# ──────────────────────────────────────
-
-# 부서 정의
-# Shared/{dept_id}/ 폴더는 해당 부서 소속 사용자 + admin만 접근 가능
-# Shared/ 루트의 파일은 모든 역할이 접근 가능 (기존과 동일)
 departments:
-  life_insurance:
-    name: "생명보험사업부"
-    description: "생명보험 상품 개발 및 운영"
-  health_insurance:
-    name: "건강보험사업부"
-    description: "건강/의료보험 상품"
-  underwriting:
-    name: "심사부"
-    description: "보험 심사 및 언더라이팅"
-  compliance:
-    name: "준법감시부"
-    description: "규정 준수 및 감사"
   it:
-    name: "IT부"
-    description: "시스템 개발 및 운영"
-
+    description: 시스템 개발 및 운영
+    name: 보험개발팀
+  underwriting:
+    description: 보험 심사 및 언더라이팅
+    name: 언더라이팅팀
 roles:
   admin:
-    description: "시스템 관리자"
     allowed_paths:
       read:
-        - "/Shared/**"
-        - "/Private/**"
+      - /Public/**
+      - /Shared/**
+      - /Private/**
       write:
-        - "/Shared/**"
-        - "/Private/**"
-
-  underwriter:
-    description: "언더라이터 (심사역)"
-    allowed_paths:
-      read:
-        - "/Shared/**"
-        - "/Public/underwriting/**"
-      write:
-        - "/Public/underwriting/**"
-
+      - /Public/**
+      - /Shared/**
+      - /Private/**
   analyst:
-    description: "데이터 분석가"
     allowed_paths:
       read:
-        - "/Shared/**"
+      - /Public/**
+      - /Shared/**
       write:
-        - "/Public/reports/**"
-
-  viewer:
-    description: "일반 조회자"
+      - /Public/reports/**
+  underwriter:
     allowed_paths:
       read:
-        - "/Shared/**"
+      - /Public/**
+      - /Shared/**
+      write:
+      - /Public/underwriting/**
+  viewer:
+    allowed_paths:
+      read:
+      - /Public/**
+      - /Shared/**
       write: []
-
 users:
-  - user_id: admin01
-    roles: [admin]
-    display_name: "시스템 관리자"
-    department: it
-
-  - user_id: uw001
-    roles: [underwriter]
-    display_name: "김심사"
-    department: underwriting
-
-  - user_id: analyst01
-    roles: [analyst]
-    display_name: "이분석"
-    department: life_insurance
-
-  - user_id: user01
-    roles: [viewer]
-    display_name: "박조회"
-    department: health_insurance
+- department: it
+  roles:
+  - admin
+  user_id: admin01
+- department: underwriting
+  roles:
+  - underwriter
+  user_id: uw001
+- department: life_insurance
+  roles:
+  - analyst
+  user_id: analyst01
+- department: health_insurance
+  roles:
+  - viewer
+  user_id: user01

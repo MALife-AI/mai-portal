@@ -144,6 +144,88 @@ class SessionMemory:
 
         return "\n\n".join(results)
 
+    # ── 대화 히스토리 자동 저장/로드 ──────────────────────────────────
+
+    def _history_path(self) -> Path:
+        return self._dir / "history.json"
+
+    def append_turn(self, role: str, content: str) -> None:
+        """대화 턴을 히스토리 파일에 추가합니다."""
+        history = self.load_history()
+        history.append({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        self._history_path().write_text(
+            json.dumps(history, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_history(self) -> list[dict[str, str]]:
+        """저장된 대화 히스토리를 반환합니다."""
+        hp = self._history_path()
+        if hp.exists():
+            try:
+                return json.loads(hp.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return []
+        return []
+
+    # ── 롤링 요약 (Summary Buffer) ──────────────────────────────────
+
+    def _summary_path(self) -> Path:
+        return self._dir / "summary.txt"
+
+    def load_summary(self) -> str:
+        """저장된 대화 요약을 반환합니다."""
+        sp = self._summary_path()
+        if sp.exists():
+            try:
+                return sp.read_text(encoding="utf-8").strip()
+            except OSError:
+                return ""
+        return ""
+
+    def save_summary(self, summary: str) -> None:
+        """대화 요약을 저장합니다."""
+        self._summary_path().write_text(summary, encoding="utf-8")
+        logger.info("Summary saved: thread=%s, len=%d", self.thread_id, len(summary))
+
+    def get_history_for_context(self, recent_k: int = 3) -> tuple[str, list[dict[str, str]]]:
+        """컨텍스트 주입용: (요약, 최근 K턴) 튜플을 반환합니다.
+
+        - 전체 턴 수 <= recent_k: 요약 없이 전체 반환
+        - 전체 턴 수 > recent_k: 저장된 요약 + 최근 K턴
+        """
+        history = self.load_history()
+        if len(history) <= recent_k:
+            return "", history
+
+        summary = self.load_summary()
+        recent = history[-recent_k:]
+        return summary, recent
+
+    def needs_summarization(self, threshold: int = 6) -> bool:
+        """요약이 필요한지 판단합니다 (턴 수 기준)."""
+        history = self.load_history()
+        summary = self.load_summary()
+        if len(history) <= threshold:
+            return False
+        # 요약이 없거나, 요약 이후 새 턴이 threshold 이상 쌓였으면
+        if not summary:
+            return True
+        # 마지막 요약 시점 이후 새 턴 수 확인
+        summarized_count = len(history) - threshold
+        return summarized_count > 0
+
+    def get_turns_to_summarize(self, keep_recent: int = 3) -> tuple[str, list[dict[str, str]]]:
+        """요약 대상 턴들을 반환: (기존 요약, 새로 요약할 턴들)."""
+        history = self.load_history()
+        old_summary = self.load_summary()
+        turns_to_summarize = history[:-keep_recent] if len(history) > keep_recent else []
+        return old_summary, turns_to_summarize
+
     def get_context_summary(self, max_entries: int = 5) -> str:
         """최근 메모를 요약하여 시스템 프롬프트에 주입할 컨텍스트를 생성합니다."""
         index = self._load_index()

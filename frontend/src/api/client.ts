@@ -498,6 +498,11 @@ export const graphApi = {
       '/api/v1/graph/build', { method: 'POST', body: JSON.stringify({}) }
     ),
 
+  getBuildProgress: () =>
+    request<{ status: string; total_files: number; processed: number; entities: number; relationships: number; errors: number; current_file: string }>(
+      '/api/v1/graph/build/progress'
+    ),
+
   graphRAGSearch: (payload: { query: string; mode?: string; n_results?: number }) =>
     request<GraphRAGSearchResult>('/api/v1/graph/search', {
       method: 'POST',

@@ -163,7 +163,7 @@ async def kill_switch_status():
 
 class ModelConfig(BaseModel):
     vlm_provider: str = Field("llama_server")
-    vlm_model: str = Field("qwen3.5-4b")
+    vlm_model: str = Field(default_factory=lambda: settings.vlm_model)
     llama_server_url: str = Field("http://localhost:8801/v1")
     temperature: float = Field(0.7)
     max_tokens: int = Field(1024)
@@ -176,7 +176,7 @@ class GPUServerConfig(BaseModel):
     id: str
     name: str
     url: str
-    model: str = "qwen3.5-4b"
+    model: str = ""
     description: str = ""
 
 
@@ -196,7 +196,7 @@ def _load_gpu_servers() -> list[dict[str, Any]]:
         data = json.loads(_GPU_SERVERS_FILE.read_text())
         _gpu_servers_cache = (mtime, data)
         return data
-    return [{"id": "local", "name": "Local 4B", "url": getattr(settings, "llama_server_url", "http://localhost:8801/v1"), "model": "qwen3.5-4b", "description": "로컬 Metal 가속"}]
+    return [{"id": "local", "name": "Local", "url": getattr(settings, "llama_server_url", "http://localhost:8801/v1"), "model": settings.vlm_model, "description": "로컬 추론 서버"}]
 
 
 def _save_gpu_servers(servers: list[dict[str, Any]]) -> None:
@@ -256,27 +256,13 @@ async def get_model_config(
         "vlm_model": settings.vlm_model,
         "llama_server_url": settings.llama_server_url,
         "claude_wrapper_url": settings.claude_wrapper_url,
-        "ollama_base_url": settings.ollama_base_url,
         "smart_routing": settings.smart_routing,
         "llama_server_light": settings.llama_server_light,
         "llama_server_heavy": settings.llama_server_heavy,
     }
     available_models = []
-    try:
-        import asyncio
-        import subprocess
-        loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(
-            None,
-            lambda: subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5),
-        )
-        for line in r.stdout.strip().split("\n")[1:]:
-            parts = line.split()
-            if parts:
-                available_models.append({"name": parts[0], "source": "ollama", "size": parts[2] if len(parts) > 2 else ""})
-    except Exception:
-        pass
-    available_models.append({"name": "qwen3.5-4b", "source": "llama-server (Unsloth GGUF)", "size": "4.16 GB"})
+    for srv in _load_gpu_servers():
+        available_models.append({"name": srv.get("model", settings.vlm_model), "source": f"llama-server ({srv.get('name', '')})", "size": ""})
     return {"config": config, "available_models": available_models, "gpu_servers": _load_gpu_servers()}
 
 

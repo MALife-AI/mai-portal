@@ -350,7 +350,7 @@ function ModelTab() {
   const [heavyUrl, setHeavyUrl] = useState('')
   // GPU 서버 추가 폼
   const [newSrv, setNewSrv] = useState<{ id: string; name: string; url: string; model: string; description: string }>({
-    id: '', name: '', url: '', model: 'qwen3.5-4b', description: '',
+    id: '', name: '', url: '', model: '', description: '',
   })
   const toast = useToast()
 
@@ -409,7 +409,7 @@ function ModelTab() {
       body: JSON.stringify(newSrv),
     })
     toast.success('GPU 서버 추가', newSrv.name)
-    setNewSrv({ id: '', name: '', url: '', model: 'qwen3.5-4b', description: '' })
+    setNewSrv({ id: '', name: '', url: '', model: '', description: '' })
     // Optimistic update: append without a round-trip fetch
     setGpuServers(prev => [...prev, newSrv])
   }
