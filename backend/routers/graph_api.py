@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -389,22 +390,27 @@ async def build_graph(
 
             logger.info("Graph build: %d total, %d already done, %d remaining", len(md_files), len(md_files) - len(remaining), len(remaining))
 
-            # 파일별 추출 (진행률 추적)
+            # 파일별 추출 (병렬 + 실시간 진행률)
             sem = asyncio.Semaphore(4)
             base_processed = len(md_files) - len(remaining)
-            for i, md_file in enumerate(remaining):
-                rel_path = "/" + md_file.relative_to(vault_root).as_posix()
-                _graph_build_progress["current_file"] = md_file.name
-                _graph_build_progress["processed"] = base_processed + i
+            _completed_count = 0
 
+            async def _process_one(md_file: Path):
+                nonlocal _completed_count
+                rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                 async with sem:
+                    _graph_build_progress["current_file"] = md_file.name
                     try:
                         ents, rels = await extractor.extract_from_file(md_file, rel_path)
                         _graph_build_progress["entities"] += len(ents)
                         _graph_build_progress["relationships"] += len(rels)
                     except Exception:
                         _graph_build_progress["errors"] += 1
+                    finally:
+                        _completed_count += 1
+                        _graph_build_progress["processed"] = base_processed + _completed_count
 
+            await asyncio.gather(*[_process_one(f) for f in remaining])
             _graph_build_progress["processed"] = len(md_files)
             extractor._store.save()
 
