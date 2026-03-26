@@ -300,7 +300,7 @@ async def invoke_agent_stream(
                             "핵심 키워드를 추출하고, 동의어/관련어를 포함하여 검색 정확도를 높이세요. "
                             "재작성된 쿼리만 출력하세요. 설명 없이 한 줄로."
                         )},
-                        {"role": "user", "content": query},
+                        {"role": "user", "content": f"/no_think\n{query}"},
                     ],
                     max_tokens=100,
                     temperature=0.3,
@@ -1060,7 +1060,7 @@ async def _generate_rolling_summary(
             model=model_name,
             messages=[
                 {"role": "system", "content": "당신은 대화를 간결하게 요약하는 어시스턴트입니다. 핵심 정보만 200자 이내로 요약하세요."},
-                {"role": "user", "content": "\n".join(prompt_parts)},
+                {"role": "user", "content": "/no_think\n" + "\n".join(prompt_parts)},
             ],
             max_tokens=256,
             temperature=0.1,

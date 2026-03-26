@@ -752,7 +752,9 @@ class GraphExtractor:
     async def _call_openai(self, prompt: str) -> dict[str, Any]:
         llm = self._get_llm()
         try:
-            response = await llm.ainvoke([{"role": "user", "content": prompt}])
+            # Qwen3.5 thinking 모드 비활성화 — /no_think 접두어로 불필요한 추론 시간 제거
+            _prompt = f"/no_think\n{prompt}"
+            response = await llm.ainvoke([{"role": "user", "content": _prompt}])
             raw = response.content if hasattr(response, "content") else str(response)
             return _parse_extraction_response(raw)
         except Exception as exc:
