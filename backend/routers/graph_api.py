@@ -490,6 +490,102 @@ async def build_graph(
 
             await asyncio.gather(*[_process_one(f) for f in remaining])
             _graph_build_progress["processed"] = len(md_files)
+
+            # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────
+            assets_dir = vault_root / "assets"
+            if assets_dir.exists():
+                image_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+                image_files = [
+                    f for f in assets_dir.rglob("*")
+                    if f.is_file() and f.suffix.lower() in image_exts
+                ]
+                if image_files:
+                    _graph_build_progress["current_file"] = f"이미지 처리 ({len(image_files)}건)"
+                    logger.info("Graph build: processing %d images from assets/", len(image_files))
+                    try:
+                        from backend.ingestion.vlm_processor import get_image_processor
+                        from backend.graph.models import Entity, Relationship
+
+                        processor = get_image_processor()
+                        img_sem = asyncio.Semaphore(2)
+
+                        async def _process_image(img_path: Path):
+                            async with img_sem:
+                                try:
+                                    result = await processor.analyze_image(img_path)
+                                    caption = result.get("caption", "") or img_path.stem
+                                    img_type = result.get("type", "diagram")
+                                    table_md = result.get("markdown_table", "")
+                                    rel_path = "/" + img_path.relative_to(vault_root).as_posix()
+                                    parent_doc = img_path.parent.name
+                                    source = [f"/assets/{parent_doc}/{img_path.name}"]
+
+                                    if img_type == "table" and table_md:
+                                        entity = Entity(
+                                            id=f"tbl_{img_path.stem}",
+                                            name=f"표: {parent_doc}" if parent_doc else f"표: {img_path.stem}",
+                                            entity_type="table",
+                                            properties={
+                                                "image_path": rel_path,
+                                                "raw_markdown": table_md[:800],
+                                                "parent_document": parent_doc,
+                                            },
+                                            source_paths=source,
+                                            mentions=1,
+                                        )
+                                        extractor._store.add_entity(entity)
+                                        _graph_build_progress["entities"] += 1
+
+                                        # 표 팩트 분해
+                                        try:
+                                            facts = await extractor._decompose_table(table_md, parent_doc)
+                                            for fact in facts:
+                                                fact_ent = Entity(
+                                                    id=f"fact_{img_path.stem}_{fact['key'][:30].replace(' ', '_')}",
+                                                    name=fact["key"],
+                                                    entity_type="fact",
+                                                    properties={
+                                                        "value": fact["value"],
+                                                        "context": fact.get("context", ""),
+                                                        "parent_table": f"tbl_{img_path.stem}",
+                                                        "parent_document": parent_doc,
+                                                    },
+                                                    source_paths=source,
+                                                    mentions=1,
+                                                )
+                                                extractor._store.add_entity(fact_ent)
+                                                extractor._store.add_relationship(Relationship(
+                                                    source_id=f"tbl_{img_path.stem}",
+                                                    target_id=fact_ent.id,
+                                                    relation_type="contains",
+                                                    source_path=rel_path,
+                                                ))
+                                                _graph_build_progress["entities"] += 1
+                                                _graph_build_progress["relationships"] += 1
+                                        except Exception:
+                                            pass
+                                    else:
+                                        entity = Entity(
+                                            id=f"img_{img_path.stem}",
+                                            name=caption[:80] if caption else img_path.stem,
+                                            entity_type="image",
+                                            properties={
+                                                "image_path": rel_path,
+                                                "caption": caption[:200],
+                                                "parent_document": parent_doc,
+                                            },
+                                            source_paths=source,
+                                            mentions=1,
+                                        )
+                                        extractor._store.add_entity(entity)
+                                        _graph_build_progress["entities"] += 1
+                                except Exception:
+                                    _graph_build_progress["errors"] += 1
+
+                        await asyncio.gather(*[_process_image(f) for f in image_files[:100]])
+                    except Exception as exc:
+                        logger.warning("Image entity extraction failed: %s", exc)
+
             extractor._store.save()
 
             _graph_build_progress["status"] = "completed"
