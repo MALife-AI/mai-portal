@@ -940,7 +940,7 @@ export default function KnowledgeGraph() {
             style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
           >
             <div className="flex items-center justify-between mb-1.5 text-surface-700">
-              <span>{buildProgress.processed} / {buildProgress.total_files} 파일</span>
+              <span>{buildProgress.processed} / {buildProgress.total_files} 파일 처리 중{buildProgress.processed > 0 && buildProgress.entities > buildProgress.processed * 10 ? ' (이어서 빌드)' : ''}</span>
               <span className="font-mono">{buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%</span>
             </div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
