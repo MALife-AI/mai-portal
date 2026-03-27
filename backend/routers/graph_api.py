@@ -21,11 +21,15 @@ POST /search                — GraphRAG search (body: {query, mode, n_results})
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -85,16 +89,77 @@ def _get_store_for_write(rel_path: str, user_id: str) -> Any:
 def _get_extractor(store: Any = None) -> Any:
     """GraphExtractor를 반환. store를 지정하면 해당 store 사용."""
     global _graph_extractor
+    from backend.config import settings
+    _model = settings.graph_extract_model or None
     if store:
         from backend.graph.extractor import GraphExtractor
-        return GraphExtractor(graph_store=store)
+        return GraphExtractor(graph_store=store, model=_model)
     if _graph_extractor is None:
         from backend.graph.extractor import GraphExtractor
-        _graph_extractor = GraphExtractor(graph_store=_get_layered().base)
+        _graph_extractor = GraphExtractor(graph_store=_get_layered().base, model=_model)
     return _graph_extractor
 
 
 _require_admin = require_admin  # backward compat alias
+
+
+# ---------------------------------------------------------------------------
+# LLM 서버 모델 스왑 (그래프 추출 시 경량 모델 사용)
+# ---------------------------------------------------------------------------
+
+_LLAMA_SERVER_BIN = "/home/lsc/malife-gpu-server/llama-src/build/bin/llama-server"
+_MODELS_DIR = Path("/home/lsc/malife-gpu-server/models")
+_SERVER_LOG = "/home/lsc/malife-gpu-server/server.log"
+_LLAMA_PORT = 8801
+
+# 모델 프로파일: (파일명, alias, parallel, ctx-size)
+_MODEL_PROFILES = {
+    "main": ("Qwen3.5-27B-Q4_K_M.gguf", "qwen3.5-27b", 2, 32768),
+    "extract": ("Qwen3.5-9B-UD-Q4_K_XL.gguf", "qwen3.5-9b", 6, 32768),
+}
+
+
+async def _swap_llama_model(profile: str) -> None:
+    """llama-server를 지정 프로파일로 재시작합니다."""
+    model_file, alias, parallel, ctx_size = _MODEL_PROFILES[profile]
+    model_path = _MODELS_DIR / model_file
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model not found: {model_path}")
+
+    # 기존 서버 종료
+    subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
+    await asyncio.sleep(2)
+
+    # 새 서버 시작
+    cmd = [
+        _LLAMA_SERVER_BIN,
+        "--model", str(model_path),
+        "--alias", alias,
+        "--ctx-size", str(ctx_size),
+        "--n-gpu-layers", "999",
+        "--parallel", str(parallel),
+        "--cont-batching",
+        "--metrics",
+        "--host", "0.0.0.0",
+        "--port", str(_LLAMA_PORT),
+        "--jinja",
+    ]
+    with open(_SERVER_LOG, "w") as log_f:
+        subprocess.Popen(cmd, stdout=log_f, stderr=log_f)
+
+    # 서버 준비 대기 (최대 120초)
+    async with httpx.AsyncClient() as client:
+        for _ in range(60):
+            await asyncio.sleep(2)
+            try:
+                r = await client.get(f"http://localhost:{_LLAMA_PORT}/health")
+                if r.status_code == 200:
+                    logger.info("llama-server swapped to profile=%s (%s)", profile, alias)
+                    return
+            except httpx.ConnectError:
+                continue
+    raise TimeoutError(f"llama-server failed to start with profile={profile}")
 
 
 # ---------------------------------------------------------------------------
@@ -363,9 +428,21 @@ async def build_graph(
             "status": "running", "total_files": 0, "processed": 0,
             "entities": 0, "relationships": 0, "errors": 0, "current_file": "",
         })
+        _swapped = False
         try:
+            # ── 추출 전용 모델로 교체 ──
+            extract_model = _settings.graph_extract_model
+            if extract_model and (_MODELS_DIR / _MODEL_PROFILES.get("extract", ("",))[0]).exists():
+                _graph_build_progress["current_file"] = "모델 교체 중 (9B)..."
+                await _swap_llama_model("extract")
+                _swapped = True
+
             layered = _get_layered()
             extractor = _get_extractor(layered.base)
+            # 모델 교체 시 LLM 인스턴스 리셋
+            if _swapped:
+                extractor._llm = None
+                extractor._model = extract_model
 
             # 파일 목록 수집
             vault_root = _settings.vault_root
@@ -391,7 +468,8 @@ async def build_graph(
             logger.info("Graph build: %d total, %d already done, %d remaining", len(md_files), len(md_files) - len(remaining), len(remaining))
 
             # 파일별 추출 (병렬 + 실시간 진행률)
-            sem = asyncio.Semaphore(4)
+            _parallel = _MODEL_PROFILES["extract"][2] if _swapped else 4
+            sem = asyncio.Semaphore(_parallel)
             base_processed = len(md_files) - len(remaining)
             _completed_count = 0
 
@@ -422,6 +500,17 @@ async def build_graph(
             logger.error("Graph build failed: %s", exc)
             _graph_build_progress["status"] = "error"
             _graph_build_progress["current_file"] = str(exc)
+        finally:
+            # ── 메인 모델로 복원 ──
+            if _swapped:
+                try:
+                    _graph_build_progress["current_file"] = "모델 복원 중 (27B)..."
+                    await _swap_llama_model("main")
+                    # extractor LLM 리셋
+                    extractor._llm = None
+                    extractor._model = _settings.vlm_model
+                except Exception as swap_err:
+                    logger.error("Failed to restore main model: %s", swap_err)
 
     asyncio.create_task(_build_task())
     return {"status": "started", "total_files": 0}

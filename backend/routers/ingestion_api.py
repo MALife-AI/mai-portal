@@ -322,7 +322,7 @@ async def convert_pdf_to_docx(
 
                 persist_path = settings.vault_root / ".graph" / "knowledge_graph.json"
                 store = GraphStore(persist_path=persist_path)
-                extractor = GraphExtractor(graph_store=store)
+                extractor = GraphExtractor(graph_store=store, model=settings.graph_extract_model or None)
 
                 md_full_path = settings.vault_root / rel_path.lstrip("/")
                 if md_full_path.exists():

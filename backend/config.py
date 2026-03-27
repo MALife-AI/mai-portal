@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llama_server_light: str = "http://localhost:8801/v1"   # 간단한 질문 (4B)
     llama_server_heavy: str = ""                           # 복잡한 질문 (9B+ GPU 서버, 비어있으면 light와 동일)
     smart_routing: bool = False                            # True면 자동 라우팅
+    graph_extract_model: str = ""                            # 그래프 추출 전용 모델 (비어있으면 vlm_model 사용)
     chroma_persist_dir: Path = Path("./data/chroma")
     sqlite_checkpoint_path: Path = Path("./data/checkpoints.db")
     log_level: str = "INFO"

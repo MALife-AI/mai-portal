@@ -905,5 +905,6 @@ def get_graph_extractor() -> GraphExtractor:
     if _extractor is None:
         from backend.graph.store import GraphStore
         _store = GraphStore()
-        _extractor = GraphExtractor(graph_store=_store)
+        from backend.config import settings
+        _extractor = GraphExtractor(graph_store=_store, model=settings.graph_extract_model or None)
     return _extractor
