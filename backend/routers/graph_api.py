@@ -678,6 +678,20 @@ async def build_progress(
     return _graph_build_progress
 
 
+@router.post("/build/reset", summary="그래프 빌드 상태 리셋 (관리자 전용)")
+async def reset_build_progress(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+) -> dict[str, str]:
+    """멈춘 빌드 상태를 idle로 리셋합니다."""
+    _require_admin(user_id, iam)
+    _graph_build_progress.update({
+        "status": "idle", "total_files": 0, "processed": 0,
+        "entities": 0, "relationships": 0, "errors": 0, "current_file": "",
+    })
+    return {"status": "reset"}
+
+
 @router.post("/build-document", summary="단일 문서 그래프 추가")
 async def build_document(
     body: BuildDocumentRequest,
