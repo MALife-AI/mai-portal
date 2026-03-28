@@ -437,8 +437,12 @@ async def build_graph(
                 await _swap_llama_model("extract")
                 _swapped = True
 
-            layered = _get_layered()
-            extractor = _get_extractor(layered.base)
+            # 빌드마다 store를 디스크에서 새로 로드 (중간저장 결과 반영)
+            from backend.graph.layered_store import get_layered_store
+            layered = get_layered_store(force_reload=True)
+            from backend.graph.extractor import GraphExtractor
+            _model = _settings.graph_extract_model or None
+            extractor = GraphExtractor(graph_store=layered.base, model=_model)
             # 모델 교체 시 LLM 인스턴스 리셋
             if _swapped:
                 extractor._llm = None
@@ -476,16 +480,23 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
+            _FILE_TIMEOUT = 120  # 파일당 최대 120초
+
             async def _process_one(md_file: Path):
                 nonlocal _completed_count
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                 async with sem:
                     _graph_build_progress["current_file"] = md_file.name
                     try:
-                        ents, rels = await extractor.extract_from_file(md_file, rel_path)
-                        _graph_build_progress["entities"] += len(ents)
-                        _graph_build_progress["relationships"] += len(rels)
-                    except Exception:
+                        await asyncio.wait_for(
+                            _extract_file(extractor, md_file, rel_path),
+                            timeout=_FILE_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout extracting %s", md_file.name)
+                        _graph_build_progress["errors"] += 1
+                    except Exception as exc:
+                        logger.warning("Error extracting %s: %s", md_file.name, exc)
                         _graph_build_progress["errors"] += 1
                     finally:
                         _completed_count += 1
@@ -498,7 +509,12 @@ async def build_graph(
                             except Exception:
                                 pass
 
-            await asyncio.gather(*[_process_one(f) for f in remaining])
+            async def _extract_file(ext, md_file, rel_path):
+                ents, rels = await ext.extract_from_file(md_file, rel_path)
+                _graph_build_progress["entities"] += len(ents)
+                _graph_build_progress["relationships"] += len(rels)
+
+            await asyncio.gather(*[_process_one(f) for f in remaining], return_exceptions=True)
             _graph_build_progress["processed"] = len(md_files)
 
             # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────

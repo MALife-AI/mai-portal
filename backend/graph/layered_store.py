@@ -142,8 +142,8 @@ class LayeredGraphStore:
 _layered_store: LayeredGraphStore | None = None
 
 
-def get_layered_store() -> LayeredGraphStore:
+def get_layered_store(force_reload: bool = False) -> LayeredGraphStore:
     global _layered_store
-    if _layered_store is None:
+    if _layered_store is None or force_reload:
         _layered_store = LayeredGraphStore()
     return _layered_store
