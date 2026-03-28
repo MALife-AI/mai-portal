@@ -939,22 +939,45 @@ export default function KnowledgeGraph() {
             className="mx-4 mb-2 p-3 rounded-md text-xs"
             style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
           >
-            <div className="flex items-center justify-between mb-1.5 text-surface-700">
-              <span>{buildProgress.processed} / {buildProgress.total_files} 파일 처리 중{buildProgress.processed > 0 && buildProgress.entities > buildProgress.processed * 10 ? ' (이어서 빌드)' : ''}</span>
-              <span className="font-mono">{buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%</span>
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
-              <motion.div
-                className="h-full rounded-full bg-gold-500"
-                initial={{ width: 0 }}
-                animate={{ width: `${buildProgress.total_files > 0 ? (buildProgress.processed / buildProgress.total_files * 100) : 0}%` }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
-            <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
-              <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
-              <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
-            </div>
+            {buildProgress.retry_round ? (
+              <>
+                <div className="flex items-center justify-between mb-1.5 text-surface-700">
+                  <span>재시도 {buildProgress.retry_round}차: {buildProgress.retry_done ?? 0} / {buildProgress.retry_total ?? 0} 파일</span>
+                  <span className="font-mono">{(buildProgress.retry_total ?? 0) > 0 ? Math.round((buildProgress.retry_done ?? 0) / buildProgress.retry_total * 100) : 0}%</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+                  <motion.div
+                    className="h-full rounded-full bg-gold-500"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(buildProgress.retry_total ?? 0) > 0 ? ((buildProgress.retry_done ?? 0) / buildProgress.retry_total * 100) : 0}%` }}
+                    transition={{ duration: 0.3 }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
+                  <span>성공 {(buildProgress.retry_done ?? 0) - (buildProgress.retry_failed ?? 0)}개 · 실패 {buildProgress.retry_failed ?? 0}개 · 엔티티 {buildProgress.entities}개</span>
+                  <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-1.5 text-surface-700">
+                  <span>{buildProgress.processed} / {buildProgress.total_files} 파일 처리 중{buildProgress.processed > 0 && buildProgress.entities > buildProgress.processed * 10 ? ' (이어서 빌드)' : ''}</span>
+                  <span className="font-mono">{buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
+                  <motion.div
+                    className="h-full rounded-full bg-gold-500"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${buildProgress.total_files > 0 ? (buildProgress.processed / buildProgress.total_files * 100) : 0}%` }}
+                    transition={{ duration: 0.3 }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
+                  <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
+                  <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

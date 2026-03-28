@@ -539,7 +539,10 @@ async def build_graph(
                 if not _retry_queue or _graph_build_cancelled:
                     break
                 logger.info("Retry round %d: %d files, timeout=%ds", attempt, len(_retry_queue), timeout)
-                _graph_build_progress["current_file"] = f"재시도 {attempt}차 ({len(_retry_queue)}건)"
+                _graph_build_progress["retry_round"] = attempt
+                _graph_build_progress["retry_total"] = len(_retry_queue)
+                _graph_build_progress["retry_done"] = 0
+                _graph_build_progress["retry_failed"] = 0
                 next_failed: list[Path] = []
                 retry_count = 0
                 for md_file in _retry_queue:
@@ -556,8 +559,10 @@ async def build_graph(
                     except Exception as exc:
                         logger.warning("Retry%d failed for %s: %s", attempt, md_file.name, exc)
                         next_failed.append(md_file)
+                        _graph_build_progress["retry_failed"] += 1
                     finally:
                         retry_count += 1
+                        _graph_build_progress["retry_done"] = retry_count
                         if retry_count % 10 == 0:
                             extractor._store.save()
                             logger.info("Graph checkpoint saved during retry%d (%d/%d)", attempt, retry_count, len(_retry_queue))
@@ -565,6 +570,9 @@ async def build_graph(
                 _retry_queue = next_failed
             if _retry_queue:
                 logger.warning("Permanently failed files (%d): %s", len(_retry_queue), [f.name for f in _retry_queue])
+            # 재시도 필드 정리
+            for k in ("retry_round", "retry_total", "retry_done", "retry_failed"):
+                _graph_build_progress.pop(k, None)
             _graph_build_progress["processed"] = len(md_files)
 
             # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────
