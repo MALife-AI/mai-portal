@@ -480,8 +480,8 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
-            _FILE_TIMEOUT = 120  # 파일당 최대 120초
-            _RETRY_TIMEOUT = 300  # 재시도 시 최대 300초
+            _FILE_TIMEOUT = 600  # 파일당 최대 10분
+            _RETRY_TIMEOUT = 600  # 재시도 시 최대 10분
             _failed_files: list[Path] = []
 
             async def _extract_file(ext, md_file, rel_path):
