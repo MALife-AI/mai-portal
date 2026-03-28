@@ -481,8 +481,15 @@ async def build_graph(
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
             _FILE_TIMEOUT = 120  # 파일당 최대 120초
+            _RETRY_TIMEOUT = 300  # 재시도 시 최대 300초
+            _failed_files: list[Path] = []
 
-            async def _process_one(md_file: Path):
+            async def _extract_file(ext, md_file, rel_path):
+                ents, rels = await ext.extract_from_file(md_file, rel_path)
+                _graph_build_progress["entities"] += len(ents)
+                _graph_build_progress["relationships"] += len(rels)
+
+            async def _process_one(md_file: Path, timeout: int = _FILE_TIMEOUT):
                 nonlocal _completed_count
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                 async with sem:
@@ -490,18 +497,17 @@ async def build_graph(
                     try:
                         await asyncio.wait_for(
                             _extract_file(extractor, md_file, rel_path),
-                            timeout=_FILE_TIMEOUT,
+                            timeout=timeout,
                         )
                     except asyncio.TimeoutError:
-                        logger.warning("Timeout extracting %s", md_file.name)
-                        _graph_build_progress["errors"] += 1
+                        logger.warning("Timeout extracting %s (timeout=%ds)", md_file.name, timeout)
+                        _failed_files.append(md_file)
                     except Exception as exc:
                         logger.warning("Error extracting %s: %s", md_file.name, exc)
-                        _graph_build_progress["errors"] += 1
+                        _failed_files.append(md_file)
                     finally:
                         _completed_count += 1
                         _graph_build_progress["processed"] = base_processed + _completed_count
-                        # 중간 저장
                         if _completed_count % _CHECKPOINT_INTERVAL == 0:
                             try:
                                 extractor._store.save()
@@ -509,12 +515,29 @@ async def build_graph(
                             except Exception:
                                 pass
 
-            async def _extract_file(ext, md_file, rel_path):
-                ents, rels = await ext.extract_from_file(md_file, rel_path)
-                _graph_build_progress["entities"] += len(ents)
-                _graph_build_progress["relationships"] += len(rels)
-
+            # 1차 처리
             await asyncio.gather(*[_process_one(f) for f in remaining], return_exceptions=True)
+
+            # 실패 파일 재시도 (1개씩, 긴 timeout)
+            if _failed_files:
+                logger.info("Retrying %d failed files with %ds timeout", len(_failed_files), _RETRY_TIMEOUT)
+                _graph_build_progress["current_file"] = f"재시도 중 ({len(_failed_files)}건)"
+                retry_sem = asyncio.Semaphore(1)
+                retry_failed: list[str] = []
+                for md_file in _failed_files:
+                    rel_path = "/" + md_file.relative_to(vault_root).as_posix()
+                    _graph_build_progress["current_file"] = f"재시도: {md_file.name}"
+                    try:
+                        await asyncio.wait_for(
+                            _extract_file(extractor, md_file, rel_path),
+                            timeout=_RETRY_TIMEOUT,
+                        )
+                        _graph_build_progress["errors"] = max(0, _graph_build_progress["errors"] - 1)
+                    except Exception as exc:
+                        logger.warning("Retry failed for %s: %s", md_file.name, exc)
+                        retry_failed.append(md_file.name)
+                if retry_failed:
+                    logger.warning("Permanently failed files: %s", retry_failed)
             _graph_build_progress["processed"] = len(md_files)
 
             # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────
