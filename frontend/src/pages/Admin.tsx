@@ -123,7 +123,7 @@ function OverviewTab() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="panel p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -478,7 +478,7 @@ function ModelTab() {
           </div>
 
           {smartRouting && (
-            <div className="grid grid-cols-2 gap-4 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Gauge size={14} className="text-status-success" />
@@ -557,7 +557,7 @@ function ModelTab() {
         {/* 서버 추가 폼 */}
         <div className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">서버 추가</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-2xs font-mono text-surface-600 uppercase">서버 ID</label>
               <input value={newSrv.id} onChange={e => setNewSrv(prev => ({ ...prev, id: e.target.value }))} placeholder="gpu-a100" className="input-field w-full mt-1 font-mono text-xs" />
@@ -617,7 +617,7 @@ function MetricsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div className="panel p-4 text-center">
           <p className="text-2xs text-surface-600 uppercase mb-1">총 쿼리</p>
           <p className="text-2xl font-bold text-surface-900">{metrics.total_queries}</p>
@@ -646,7 +646,7 @@ function MetricsTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">사용자별 쿼리</p>
           {userData.map(d => (
@@ -714,7 +714,7 @@ function ApiKeysTab() {
       {/* 새 키 발급 */}
       <div className="panel p-4 space-y-3">
         <p className="text-xs font-semibold text-surface-800">새 API 키 발급</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div>
             <label className="text-2xs text-surface-600">라벨</label>
             <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
@@ -859,7 +859,7 @@ function GuardrailsTab() {
             <span className="text-xs text-surface-700">{config.prompt_injection.enabled ? '활성' : '비활성'}</span>
           </label>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div>
             <label className="text-2xs text-surface-600 block mb-1">위험도 임계값</label>
             <input type="number" step="0.05" min="0" max="1" value={config.prompt_injection.risk_threshold}
@@ -932,7 +932,7 @@ function GuardrailsTab() {
       {/* 출력 가드레일 */}
       <div className="panel p-4 space-y-3">
         <h4 className="text-sm font-semibold text-surface-800">출력 가드레일</h4>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {([
             ['pii_masking', 'PII 마스킹'],
             ['block_code_execution', '코드 실행 차단'],
@@ -965,7 +965,7 @@ function GuardrailsTab() {
             <span className="text-xs text-surface-700">{config.rate_limits.enabled ? '활성' : '비활성'}</span>
           </label>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           <div>
             <label className="text-2xs text-surface-600 block mb-1">분당 최대 쿼리</label>
             <input type="number" value={config.rate_limits.max_queries_per_minute}
@@ -990,7 +990,7 @@ function GuardrailsTab() {
       {/* 콘텐츠 정책 */}
       <div className="panel p-4 space-y-3">
         <h4 className="text-sm font-semibold text-surface-800">콘텐츠 정책</h4>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={config.content_policy.require_citation}
               onChange={e => update('content_policy', 'require_citation', e.target.checked)}
@@ -1045,7 +1045,7 @@ function GuardrailsTab() {
       {/* 에이전트 콘솔 UI 설정 */}
       <div className="panel p-4 space-y-3">
         <h4 className="text-sm font-semibold text-surface-800">에이전트 콘솔 화면 설정</h4>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-2xs text-surface-600">환영 제목</label>
             <input value={agentUi.welcome_title} onChange={e => setAgentUi({ ...agentUi, welcome_title: e.target.value })}
@@ -1090,7 +1090,7 @@ function GovernanceTab() {
   return (
     <div className="space-y-6">
       {/* Security stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div className="panel p-4 text-center">
           <p className="text-2xs text-surface-600 uppercase mb-1">권한 위반</p>
           <p className={cn('text-2xl font-bold', data.permission_violations > 0 ? 'text-status-error' : 'text-status-success')}>
@@ -1363,7 +1363,7 @@ function DepartmentsTab() {
       {(isNew || editId) && (
         <div className="panel p-4 space-y-3">
           <p className="text-xs font-semibold text-surface-800">{isNew ? '새 부서 추가' : '부서 수정'}</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div>
               <label className="text-2xs font-mono text-surface-600 uppercase">부서 ID</label>
               <input
@@ -1623,7 +1623,7 @@ function CreateMachineModal({ hostId, onClose, onCreated }: {
           </div>
           <button onClick={onClose} className="btn-secondary text-xs">취소</button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="text-2xs text-surface-600 mb-1 block">머신 이름</label>
             <input className="input-field w-full" placeholder="예: llama-8b-01"
@@ -1786,7 +1786,7 @@ function InfraTab() {
       {showAddHost && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">새 호스트 등록</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <input className="input-field" placeholder="이름 (예: gpu-server-01)"
               value={newHost.name} onChange={e => setNewHost(v => ({ ...v, name: e.target.value }))} />
             <input className="input-field" placeholder="주소 (예: 192.168.1.100)"
@@ -2427,7 +2427,7 @@ function SharedDocsTab() {
         )}
 
         {graphStats ? (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {[
               { label: '엔티티', value: graphStats.node_count, color: '#F37021' },
               { label: '관계', value: graphStats.edge_count, color: '#4A90D9' },
@@ -2480,7 +2480,7 @@ export default function Admin() {
   ]
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto space-y-6">
       <div>
         <h2 className="font-display font-semibold text-surface-900 text-xl mb-1">관리 패널</h2>
         <p className="text-sm text-surface-600">시스템 설정, 사용자 관리, 보안 거버넌스</p>

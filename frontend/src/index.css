@@ -46,6 +46,20 @@
   --header-height: 56px;
 }
 
+/* ─── Mobile Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  :root,
+  [data-theme="dark"],
+  [data-theme="light"] {
+    --sidebar-width: 280px;
+    --header-height: 48px;
+  }
+
+  html {
+    font-size: 14px;
+  }
+}
+
 /* ─── Base Styles ────────────────────────────────────────────────────────── */
 *,
 *::before,

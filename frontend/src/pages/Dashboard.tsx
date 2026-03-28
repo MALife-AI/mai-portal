@@ -135,7 +135,7 @@ export default function Dashboard() {
   const totalThreads = threads.length
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-6">
       {/* Top bar */}
       <div className="flex items-center gap-4">
         <SearchBar
@@ -154,7 +154,7 @@ export default function Dashboard() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="skeleton h-28 rounded-md" />
           ))}
@@ -207,7 +207,7 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Status panel + Kill switch */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             {/* System Status */}
             <motion.div
               className="col-span-2 panel p-5"
@@ -406,7 +406,7 @@ export default function Dashboard() {
 
           {/* Quick links */}
           <motion.div
-            className="grid grid-cols-3 gap-3"
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}

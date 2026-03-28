@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu } from 'lucide-react'
+import { Cpu, Menu, X } from 'lucide-react'
 import { getUserId } from '@/api/client'
 import { Sidebar } from './Sidebar'
 import { ToastContainer } from './Toast'
@@ -43,7 +43,7 @@ function GpuHealthIndicator() {
 
   useEffect(() => {
     fetchStatus()
-    const interval = setInterval(fetchStatus, 30000) // 30초마다
+    const interval = setInterval(fetchStatus, 30000)
     return () => clearInterval(interval)
   }, [fetchStatus])
 
@@ -67,7 +67,7 @@ function GpuHealthIndicator() {
               style={{ background: color, boxShadow: srv.online ? `0 0 6px ${color}66` : 'none' }}
             />
             <Cpu size={10} className="text-surface-600" />
-            <span className="text-surface-800">{srv.name}</span>
+            <span className="text-surface-800 hidden sm:inline">{srv.name}</span>
             <span style={{ color, fontSize: '9px' }}>{srv.label}</span>
           </div>
         )
@@ -79,40 +79,73 @@ function GpuHealthIndicator() {
 export function Layout() {
   const location = useLocation()
   const title = PAGE_TITLES[location.pathname] ?? '—'
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // 페이지 이동 시 모바일 사이드바 닫기
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [location.pathname])
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
-      {/* Sidebar */}
-      <Sidebar />
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar — 데스크탑: 항상 표시, 모바일: 슬라이드 오버레이 */}
+      <div
+        className={`
+          fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-out
+          md:relative md:translate-x-0 md:z-auto
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        <Sidebar onClose={() => setSidebarOpen(false)} />
+      </div>
 
       {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Top bar */}
         <header
-          className="flex items-center px-6 shrink-0"
+          className="flex items-center px-3 sm:px-6 shrink-0"
           style={{
             height: 'var(--header-height)',
             borderBottom: '1px solid var(--color-border)',
             background: 'var(--color-bg-secondary)',
           }}
         >
-          <div className="flex items-center gap-2">
-            <span
-              className="text-2xs font-mono text-surface-600 uppercase tracking-widest"
-            >
+          {/* Hamburger (mobile only) */}
+          <button
+            className="mr-2 p-1.5 rounded-md hover:bg-surface-100 md:hidden"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu size={18} className="text-surface-600" />
+          </button>
+
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-2xs font-mono text-surface-600 uppercase tracking-widest hidden sm:inline">
               M:AI PORTAL
             </span>
-            <span className="text-surface-600">/</span>
+            <span className="text-surface-600 hidden sm:inline">/</span>
             <h1
-              className="font-display font-semibold text-surface-900"
+              className="font-display font-semibold text-surface-900 truncate"
               style={{ fontSize: '0.9375rem' }}
             >
               {title}
             </h1>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <GpuHealthIndicator />
-            <span className="text-2xs font-mono text-surface-600">
+            <span className="text-2xs font-mono text-surface-600 hidden sm:inline">
               {new Date().toLocaleDateString('ko-KR', {
                 year: 'numeric',
                 month: 'long',

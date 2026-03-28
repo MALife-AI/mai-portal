@@ -15,6 +15,7 @@ import {
   Workflow,
   Zap,
   Settings,
+  X,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { useState, useEffect } from 'react'
@@ -204,13 +205,13 @@ function ThemeToggle() {
   )
 }
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { userId, setUserId, killSwitchActive } = useStore()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   return (
     <aside
-      className="flex flex-col h-full"
+      className="flex flex-col h-full shrink-0"
       style={{
         width: 'var(--sidebar-width)',
         background: 'var(--color-bg-secondary)',
@@ -230,7 +231,7 @@ export function Sidebar() {
             M:AI
           </span>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p
             className="font-display font-semibold text-surface-900 leading-none"
             style={{ fontSize: '0.875rem' }}
@@ -239,6 +240,14 @@ export function Sidebar() {
           </p>
           <p className="text-2xs text-surface-600 mt-0.5 font-mono">Secure Agentic RAG</p>
         </div>
+        {onClose && (
+          <button
+            className="p-1.5 rounded-md hover:bg-surface-100 md:hidden"
+            onClick={onClose}
+          >
+            <X size={16} className="text-surface-600" />
+          </button>
+        )}
       </div>
 
       {/* Kill Switch Warning */}

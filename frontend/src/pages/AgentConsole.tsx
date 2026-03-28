@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Workflow,
   Settings2,
+  Menu,
+  X,
 } from 'lucide-react'
 import { agentApi, type ExecutionStep, type StreamCallbacks, type ClarificationData } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
@@ -572,6 +574,7 @@ export default function AgentConsole() {
   const PROMPT_MAX_LENGTH = 200
   const [runningSkills, setRunningSkills] = useState<string[]>([])  // 실행 중인 스킬명
   const [showExecSidebar, setShowExecSidebar] = useState(true)
+  const [showMobileThreads, setShowMobileThreads] = useState(false)
   const [agentUi, setAgentUi] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -756,9 +759,22 @@ export default function AgentConsole() {
 
   return (
     <div className="flex h-full overflow-hidden">
+      {/* Mobile thread list overlay backdrop */}
+      {showMobileThreads && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setShowMobileThreads(false)}
+        />
+      )}
+
       {/* Thread list */}
       <div
-        className="flex flex-col shrink-0"
+        className={cn(
+          'flex flex-col shrink-0',
+          'fixed inset-y-0 left-0 z-50 md:static md:z-auto',
+          'transition-transform duration-200 md:translate-x-0',
+          showMobileThreads ? 'translate-x-0' : '-translate-x-full',
+        )}
         style={{
           width: '220px',
           borderRight: '1px solid var(--color-border)',
@@ -772,13 +788,22 @@ export default function AgentConsole() {
           <span className="text-2xs font-mono text-surface-600 uppercase tracking-widest">
             대화 목록
           </span>
-          <button
-            onClick={handleNewThread}
-            className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors"
-            title="새 대화"
-          >
-            <Plus size={13} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleNewThread}
+              className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors"
+              title="새 대화"
+            >
+              <Plus size={13} />
+            </button>
+            <button
+              onClick={() => setShowMobileThreads(false)}
+              className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors md:hidden"
+              title="닫기"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
@@ -799,7 +824,7 @@ export default function AgentConsole() {
                 key={thread.id}
                 thread={thread}
                 isActive={thread.id === activeThreadId}
-                onSelect={() => setActiveThread(thread.id)}
+                onSelect={() => { setActiveThread(thread.id); setShowMobileThreads(false) }}
                 onDelete={() => deleteThread(thread.id)}
               />
             ))
@@ -811,12 +836,19 @@ export default function AgentConsole() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Chat header */}
         <div
-          className="flex items-center justify-between px-5 py-2.5 shrink-0"
+          className="flex items-center justify-between px-3 sm:px-5 py-2.5 shrink-0"
           style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
         >
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowMobileThreads(true)}
+              className="w-7 h-7 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors md:hidden"
+              title="대화 목록"
+            >
+              <Menu size={15} />
+            </button>
             <Bot size={15} className="text-gold-500" />
-            <span className="text-sm font-semibold text-surface-900">
+            <span className="text-sm font-semibold text-surface-900 truncate">
               {activeThread?.title ?? 'M:AI 에이전트'}
             </span>
             {isRunning && (
@@ -832,11 +864,11 @@ export default function AgentConsole() {
               className={cn('btn-secondary flex items-center gap-1.5 text-xs py-1', showPromptSettings && 'ring-1 ring-gold-500/50')}
             >
               <Settings2 size={12} />
-              프롬프트
+              <span className="hidden sm:inline">프롬프트</span>
             </button>
             <button
               onClick={() => setShowExecSidebar((v) => !v)}
-              className="btn-secondary flex items-center gap-1.5 text-xs py-1"
+              className="btn-secondary flex items-center gap-1.5 text-xs py-1 hidden sm:flex"
             >
               <Terminal size={12} />
               {showExecSidebar ? '로그 숨기기' : '실행 로그'}
@@ -853,7 +885,7 @@ export default function AgentConsole() {
               exit={{ height: 0, opacity: 0 }}
               style={{ overflow: 'hidden', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
             >
-              <div className="px-5 py-3 space-y-3">
+              <div className="px-3 sm:px-5 py-3 space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-2xs font-semibold text-surface-600 uppercase tracking-widest">글로벌 프롬프트</label>
@@ -896,7 +928,7 @@ export default function AgentConsole() {
         <div className="flex flex-1 overflow-hidden">
           {/* Messages */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-5">
               {!activeThread || activeThread.messages.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -915,7 +947,7 @@ export default function AgentConsole() {
                   <p className="text-sm text-surface-600 max-w-sm mb-6">
                     {agentUi?.welcome_subtitle || '금융 문서 분석, RAG 검색, 스킬 실행까지. 무엇이든 물어보세요.'}
                   </p>
-                  <div className="grid grid-cols-2 gap-2 max-w-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-sm">
                     {(agentUi?.suggestions || [
                       '보험 약관에서 면책 조항 추출해줘',
                       '최근 투자 보고서 요약해줘',
@@ -985,12 +1017,12 @@ export default function AgentConsole() {
 
             {/* Input area */}
             <div
-              className="px-5 py-3 shrink-0 space-y-2"
+              className="px-3 sm:px-5 py-3 shrink-0 space-y-2"
               style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
             >
               {/* Model selector + traffic lights */}
               {servers.length > 0 && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto">
                   <button
                     onClick={fetchServerStatus}
                     disabled={loadingStatus}
