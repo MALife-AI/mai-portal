@@ -398,6 +398,8 @@ async def get_visualization(
     }
 
 
+_graph_build_cancelled = False
+
 _graph_build_progress: dict[str, Any] = {
     "status": "idle",
     "total_files": 0,
@@ -424,6 +426,8 @@ async def build_graph(
     from backend.config import settings as _settings
 
     async def _build_task():
+        global _graph_build_cancelled
+        _graph_build_cancelled = False
         _graph_build_progress.update({
             "status": "running", "total_files": 0, "processed": 0,
             "entities": 0, "relationships": 0, "errors": 0, "current_file": "초기화 중...",
@@ -491,8 +495,12 @@ async def build_graph(
 
             async def _process_one(md_file: Path, timeout: int = _FILE_TIMEOUT):
                 nonlocal _completed_count
+                if _graph_build_cancelled:
+                    return
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                 async with sem:
+                    if _graph_build_cancelled:
+                        return
                     _graph_build_progress["current_file"] = md_file.name
                     try:
                         await asyncio.wait_for(
@@ -517,14 +525,23 @@ async def build_graph(
 
             # 1차 처리
             await asyncio.gather(*[_process_one(f) for f in remaining], return_exceptions=True)
+            extractor._store.save()
+            logger.info("Graph saved after 1st pass (%d files)", _completed_count)
+
+            if _graph_build_cancelled:
+                _graph_build_progress["status"] = "cancelled"
+                _graph_build_progress["current_file"] = ""
+                return
 
             # 실패 파일 재시도 (1개씩, 긴 timeout)
             if _failed_files:
                 logger.info("Retrying %d failed files with %ds timeout", len(_failed_files), _RETRY_TIMEOUT)
                 _graph_build_progress["current_file"] = f"재시도 중 ({len(_failed_files)}건)"
-                retry_sem = asyncio.Semaphore(1)
                 retry_failed: list[str] = []
+                retry_count = 0
                 for md_file in _failed_files:
+                    if _graph_build_cancelled:
+                        break
                     rel_path = "/" + md_file.relative_to(vault_root).as_posix()
                     _graph_build_progress["current_file"] = f"재시도: {md_file.name}"
                     try:
@@ -536,8 +553,14 @@ async def build_graph(
                     except Exception as exc:
                         logger.warning("Retry failed for %s: %s", md_file.name, exc)
                         retry_failed.append(md_file.name)
+                    finally:
+                        retry_count += 1
+                        if retry_count % 10 == 0:
+                            extractor._store.save()
+                            logger.info("Graph checkpoint saved during retry (%d/%d)", retry_count, len(_failed_files))
+                extractor._store.save()
                 if retry_failed:
-                    logger.warning("Permanently failed files: %s", retry_failed)
+                    logger.warning("Permanently failed files (%d): %s", len(retry_failed), retry_failed)
             _graph_build_progress["processed"] = len(md_files)
 
             # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────
@@ -727,6 +750,20 @@ async def build_progress(
     return _graph_build_progress
 
 
+@router.post("/build/cancel", summary="그래프 빌드 취소 (관리자 전용)")
+async def cancel_build(
+    user_id: str = Depends(get_current_user),
+    iam: IAMEngine = Depends(get_iam),
+) -> dict[str, str]:
+    """진행 중인 빌드를 취소합니다. 중간 결과는 저장됩니다."""
+    _require_admin(user_id, iam)
+    global _graph_build_cancelled
+    if _graph_build_progress["status"] != "running":
+        return {"status": "not_running"}
+    _graph_build_cancelled = True
+    return {"status": "cancelling"}
+
+
 @router.post("/build/reset", summary="그래프 빌드 상태 리셋 (관리자 전용)")
 async def reset_build_progress(
     user_id: str = Depends(get_current_user),
@@ -734,6 +771,8 @@ async def reset_build_progress(
 ) -> dict[str, str]:
     """멈춘 빌드 상태를 idle로 리셋합니다."""
     _require_admin(user_id, iam)
+    global _graph_build_cancelled
+    _graph_build_cancelled = True
     _graph_build_progress.update({
         "status": "idle", "total_files": 0, "processed": 0,
         "entities": 0, "relationships": 0, "errors": 0, "current_file": "",
