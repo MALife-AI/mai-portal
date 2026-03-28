@@ -426,7 +426,7 @@ async def build_graph(
     async def _build_task():
         _graph_build_progress.update({
             "status": "running", "total_files": 0, "processed": 0,
-            "entities": 0, "relationships": 0, "errors": 0, "current_file": "",
+            "entities": 0, "relationships": 0, "errors": 0, "current_file": "초기화 중...",
         })
         _swapped = False
         try:
@@ -450,16 +450,17 @@ async def build_graph(
                 f for f in vault_root.rglob("*.md")
                 if f.is_file() and not f.name.startswith(".")
             ]
-            # 이미 처리된 파일 목록 수집 (이어서 빌드)
-            existing_paths: set[str] = set()
+            # 이미 처리된 파일 목록 수집 (이어서 빌드 — 파일명 NFC 정규화 매칭)
+            import unicodedata as _ud
+            existing_filenames: set[str] = set()
             try:
                 for node_id in extractor._store._graph.nodes:
                     for sp in extractor._store._graph.nodes[node_id].get("source_paths", []):
-                        existing_paths.add(sp)
+                        existing_filenames.add(_ud.normalize("NFC", sp.rsplit("/", 1)[-1]))
             except Exception:
                 pass
 
-            remaining = [f for f in md_files if "/" + f.relative_to(vault_root).as_posix() not in existing_paths]
+            remaining = [f for f in md_files if _ud.normalize("NFC", f.name) not in existing_filenames]
             _graph_build_progress["total_files"] = len(md_files)
             _graph_build_progress["processed"] = len(md_files) - len(remaining)
             _graph_build_progress["entities"] = extractor._store.get_stats().get("node_count", 0)
