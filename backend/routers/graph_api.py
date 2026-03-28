@@ -474,6 +474,8 @@ async def build_graph(
             base_processed = len(md_files) - len(remaining)
             _completed_count = 0
 
+            _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
+
             async def _process_one(md_file: Path):
                 nonlocal _completed_count
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
@@ -488,6 +490,13 @@ async def build_graph(
                     finally:
                         _completed_count += 1
                         _graph_build_progress["processed"] = base_processed + _completed_count
+                        # 중간 저장
+                        if _completed_count % _CHECKPOINT_INTERVAL == 0:
+                            try:
+                                extractor._store.save()
+                                logger.info("Graph checkpoint saved at %d files", _completed_count)
+                            except Exception:
+                                pass
 
             await asyncio.gather(*[_process_one(f) for f in remaining])
             _graph_build_progress["processed"] = len(md_files)
