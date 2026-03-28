@@ -533,34 +533,38 @@ async def build_graph(
                 _graph_build_progress["current_file"] = ""
                 return
 
-            # 실패 파일 재시도 (1개씩, 긴 timeout)
-            if _failed_files:
-                logger.info("Retrying %d failed files with %ds timeout", len(_failed_files), _RETRY_TIMEOUT)
-                _graph_build_progress["current_file"] = f"재시도 중 ({len(_failed_files)}건)"
-                retry_failed: list[str] = []
+            # 재시도: 1차 1200초 → 실패 시 2차 2400초
+            _retry_queue = list(_failed_files)
+            for attempt, timeout in [(1, _RETRY_TIMEOUT), (2, _RETRY_TIMEOUT * 2)]:
+                if not _retry_queue or _graph_build_cancelled:
+                    break
+                logger.info("Retry round %d: %d files, timeout=%ds", attempt, len(_retry_queue), timeout)
+                _graph_build_progress["current_file"] = f"재시도 {attempt}차 ({len(_retry_queue)}건)"
+                next_failed: list[Path] = []
                 retry_count = 0
-                for md_file in _failed_files:
+                for md_file in _retry_queue:
                     if _graph_build_cancelled:
                         break
                     rel_path = "/" + md_file.relative_to(vault_root).as_posix()
-                    _graph_build_progress["current_file"] = f"재시도: {md_file.name}"
+                    _graph_build_progress["current_file"] = f"재시도{attempt}차: {md_file.name}"
                     try:
                         await asyncio.wait_for(
                             _extract_file(extractor, md_file, rel_path),
-                            timeout=_RETRY_TIMEOUT,
+                            timeout=timeout,
                         )
                         _graph_build_progress["errors"] = max(0, _graph_build_progress["errors"] - 1)
                     except Exception as exc:
-                        logger.warning("Retry failed for %s: %s", md_file.name, exc)
-                        retry_failed.append(md_file.name)
+                        logger.warning("Retry%d failed for %s: %s", attempt, md_file.name, exc)
+                        next_failed.append(md_file)
                     finally:
                         retry_count += 1
                         if retry_count % 10 == 0:
                             extractor._store.save()
-                            logger.info("Graph checkpoint saved during retry (%d/%d)", retry_count, len(_failed_files))
+                            logger.info("Graph checkpoint saved during retry%d (%d/%d)", attempt, retry_count, len(_retry_queue))
                 extractor._store.save()
-                if retry_failed:
-                    logger.warning("Permanently failed files (%d): %s", len(retry_failed), retry_failed)
+                _retry_queue = next_failed
+            if _retry_queue:
+                logger.warning("Permanently failed files (%d): %s", len(_retry_queue), [f.name for f in _retry_queue])
             _graph_build_progress["processed"] = len(md_files)
 
             # ── 이미지 엔티티 추출 (vault/assets/) ──────────────────
