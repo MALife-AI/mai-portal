@@ -490,14 +490,14 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
-            _TIMEOUT_PER_KB = 30  # KB당 30초 (10KB=300초, 100KB=3000초, 280KB=8400초)
-            _TIMEOUT_MIN = 3600  # 최소 1시간
+            _TIMEOUT_BASE = 3600  # 기준 timeout 1시간 (8KB 약관 기준)
+            _TIMEOUT_BASE_KB = 8  # 기준 파일 크기 8KB
             _TIMEOUT_RETRY_MULT = 2  # 재시도 시 2배
             _failed_files: list[Path] = []
 
             def _calc_timeout(md_file: Path, multiplier: int = 1) -> int:
-                size_kb = md_file.stat().st_size / 1024
-                return max(_TIMEOUT_MIN, int(size_kb * _TIMEOUT_PER_KB)) * multiplier
+                size_kb = max(md_file.stat().st_size / 1024, _TIMEOUT_BASE_KB)
+                return int(_TIMEOUT_BASE * (size_kb / _TIMEOUT_BASE_KB) * multiplier)
 
             async def _extract_file(ext, md_file, rel_path):
                 ents, rels = await ext.extract_from_file(md_file, rel_path)
