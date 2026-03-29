@@ -490,7 +490,7 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
-            _TIMEOUT_BASE = 3600  # 기준 timeout 1시간 (8KB 약관 기준)
+            _TIMEOUT_BASE = 600   # 기준 timeout 10분 (8KB 약관 기준)
             _TIMEOUT_BASE_KB = 8  # 기준 파일 크기 8KB
             _TIMEOUT_RETRY_MULT = 2  # 재시도 시 2배
             _failed_files: list[Path] = []
