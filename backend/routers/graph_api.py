@@ -490,20 +490,26 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
-            _FILE_TIMEOUT = 3600  # 파일당 최대 1시간
-            _RETRY_TIMEOUT = 7200  # 재시도 시 최대 2시간
+            _TIMEOUT_PER_KB = 30  # KB당 30초 (10KB=300초, 100KB=3000초, 280KB=8400초)
+            _TIMEOUT_MIN = 300   # 최소 5분
+            _TIMEOUT_RETRY_MULT = 2  # 재시도 시 2배
             _failed_files: list[Path] = []
+
+            def _calc_timeout(md_file: Path, multiplier: int = 1) -> int:
+                size_kb = md_file.stat().st_size / 1024
+                return max(_TIMEOUT_MIN, int(size_kb * _TIMEOUT_PER_KB)) * multiplier
 
             async def _extract_file(ext, md_file, rel_path):
                 ents, rels = await ext.extract_from_file(md_file, rel_path)
                 _graph_build_progress["entities"] += len(ents)
                 _graph_build_progress["relationships"] += len(rels)
 
-            async def _process_one(md_file: Path, timeout: int = _FILE_TIMEOUT):
+            async def _process_one(md_file: Path, timeout_mult: int = 1):
                 nonlocal _completed_count
                 if _graph_build_cancelled:
                     return
                 rel_path = "/" + md_file.relative_to(vault_root).as_posix()
+                timeout = _calc_timeout(md_file, timeout_mult)
                 async with sem:
                     if _graph_build_cancelled:
                         return
@@ -539,12 +545,12 @@ async def build_graph(
                 _graph_build_progress["current_file"] = ""
                 return
 
-            # 재시도: 1차 1200초 → 실패 시 2차 2400초
+            # 재시도: 파일 크기 비례 timeout × 2배 / 4배
             _retry_queue = list(_failed_files)
-            for attempt, timeout in [(1, _RETRY_TIMEOUT), (2, _RETRY_TIMEOUT * 2)]:
+            for attempt, mult in [(1, _TIMEOUT_RETRY_MULT), (2, _TIMEOUT_RETRY_MULT * 2)]:
                 if not _retry_queue or _graph_build_cancelled:
                     break
-                logger.info("Retry round %d: %d files, timeout=%ds", attempt, len(_retry_queue), timeout)
+                logger.info("Retry round %d: %d files, timeout_mult=%dx", attempt, len(_retry_queue), mult)
                 _graph_build_progress["retry_round"] = attempt
                 _graph_build_progress["retry_total"] = len(_retry_queue)
                 _graph_build_progress["retry_done"] = 0
@@ -554,8 +560,9 @@ async def build_graph(
                 for md_file in _retry_queue:
                     if _graph_build_cancelled:
                         break
+                    timeout = _calc_timeout(md_file, mult)
                     rel_path = "/" + md_file.relative_to(vault_root).as_posix()
-                    _graph_build_progress["current_file"] = f"재시도{attempt}차: {md_file.name}"
+                    _graph_build_progress["current_file"] = f"재시도{attempt}차: {md_file.name} ({timeout}s)"
                     try:
                         await asyncio.wait_for(
                             _extract_file(extractor, md_file, rel_path),
