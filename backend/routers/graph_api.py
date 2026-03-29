@@ -491,7 +491,7 @@ async def build_graph(
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
             _TIMEOUT_PER_KB = 30  # KB당 30초 (10KB=300초, 100KB=3000초, 280KB=8400초)
-            _TIMEOUT_MIN = 300   # 최소 5분
+            _TIMEOUT_MIN = 3600  # 최소 1시간
             _TIMEOUT_RETRY_MULT = 2  # 재시도 시 2배
             _failed_files: list[Path] = []
 
