@@ -108,24 +108,30 @@ _require_admin = require_admin  # backward compat alias
 # ---------------------------------------------------------------------------
 
 _LLAMA_SERVER_BIN = "/home/lsc/malife-gpu-server/llama-src/build/bin/llama-server"
+_LLAMA_SERVER_TQ_BIN = "/home/lsc/malife-gpu-server/llama-turboquant/build/bin/llama-server"
 _MODELS_DIR = Path("/home/lsc/malife-gpu-server/models")
 _SERVER_LOG = "/home/lsc/malife-gpu-server/server.log"
 _LLAMA_PORT = 8801
 
-# 모델 프로파일: (파일명, alias, parallel, ctx-size)
+# 모델 프로파일: (파일명, alias, parallel, ctx-size, extra_args)
 _MODEL_PROFILES = {
-    "main": ("Qwen3.5-27B-Q4_K_M.gguf", "qwen3.5-27b", 2, 32768),
-    "extract": ("Qwen3.5-9B-UD-Q4_K_XL.gguf", "qwen3.5-9b", 6, 32768),
+    "main": ("Qwen3.5-27B-Q4_K_M.gguf", "qwen3.5-27b", 2, 32768,
+             ["--cache-type-k", "tq_pq3", "--cache-type-v", "f16"]),
+    "extract": ("Qwen3.5-9B-UD-Q4_K_XL.gguf", "qwen3.5-9b", 8, 65536,
+                ["--cache-type-k", "tq_pq3", "--cache-type-v", "f16"]),
 }
 
 
 async def _swap_llama_model(profile: str) -> None:
     """llama-server를 지정 프로파일로 재시작합니다."""
-    model_file, alias, parallel, ctx_size = _MODEL_PROFILES[profile]
+    model_file, alias, parallel, ctx_size, extra_args = _MODEL_PROFILES[profile]
     model_path = _MODELS_DIR / model_file
 
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
+
+    # TQ args가 있으면 TQ 바이너리 사용
+    server_bin = _LLAMA_SERVER_TQ_BIN if extra_args else _LLAMA_SERVER_BIN
 
     # 기존 서버 종료
     subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
@@ -133,7 +139,7 @@ async def _swap_llama_model(profile: str) -> None:
 
     # 새 서버 시작
     cmd = [
-        _LLAMA_SERVER_BIN,
+        server_bin,
         "--model", str(model_path),
         "--alias", alias,
         "--ctx-size", str(ctx_size),
@@ -144,7 +150,7 @@ async def _swap_llama_model(profile: str) -> None:
         "--host", "0.0.0.0",
         "--port", str(_LLAMA_PORT),
         "--jinja",
-    ]
+    ] + extra_args
     with open(_SERVER_LOG, "w") as log_f:
         subprocess.Popen(cmd, stdout=log_f, stderr=log_f)
 
