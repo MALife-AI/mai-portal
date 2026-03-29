@@ -117,7 +117,7 @@ _LLAMA_PORT = 8801
 _MODEL_PROFILES = {
     "main": ("Qwen3.5-27B-Q4_K_M.gguf", "qwen3.5-27b", 2, 32768,
              ["--cache-type-k", "tq_pq3", "--cache-type-v", "f16"]),
-    "extract": ("Qwen3.5-9B-UD-Q4_K_XL.gguf", "qwen3.5-9b", 8, 65536,
+    "extract": ("Qwen3.5-9B-UD-Q4_K_XL.gguf", "qwen3.5-9b", 4, 65536,
                 ["--cache-type-k", "tq_pq3", "--cache-type-v", "f16"]),
 }
 
@@ -490,8 +490,8 @@ async def build_graph(
 
             _CHECKPOINT_INTERVAL = 20  # 20파일마다 중간 저장
 
-            _FILE_TIMEOUT = 600  # 파일당 최대 10분
-            _RETRY_TIMEOUT = 1200  # 재시도 시 최대 20분
+            _FILE_TIMEOUT = 1200  # 파일당 최대 20분
+            _RETRY_TIMEOUT = 2400  # 재시도 시 최대 40분
             _failed_files: list[Path] = []
 
             async def _extract_file(ext, md_file, rel_path):
