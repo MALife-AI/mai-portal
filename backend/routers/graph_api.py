@@ -497,7 +497,9 @@ async def build_graph(
 
             def _calc_timeout(md_file: Path, multiplier: int = 1) -> int:
                 size_kb = max(md_file.stat().st_size / 1024, _TIMEOUT_BASE_KB)
-                return int(_TIMEOUT_BASE * (size_kb / _TIMEOUT_BASE_KB) * multiplier)
+                # 사업방법서는 표/수식이 많아 3배 가중
+                weight = 3 if "사업방법서" in md_file.name else 1
+                return int(_TIMEOUT_BASE * (size_kb / _TIMEOUT_BASE_KB) * weight * multiplier)
 
             async def _extract_file(ext, md_file, rel_path):
                 ents, rels = await ext.extract_from_file(md_file, rel_path)
