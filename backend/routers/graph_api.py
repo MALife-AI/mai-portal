@@ -483,8 +483,8 @@ async def build_graph(
             logger.info("Graph build: %d total, %d already done, %d remaining", len(md_files), len(md_files) - len(remaining), len(remaining))
 
             # 파일별 추출 (병렬 + 실시간 진행률)
-            _parallel = _MODEL_PROFILES["extract"][2] if _swapped else 4
-            sem = asyncio.Semaphore(_parallel)
+            # 빌드 루프는 1파일씩 순차 처리 (extractor 내부에서 청크 병렬 처리)
+            sem = asyncio.Semaphore(1)
             base_processed = len(md_files) - len(remaining)
             _completed_count = 0
 
