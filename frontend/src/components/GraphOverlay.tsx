@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Loader2, Maximize2, Minimize2 } from 'lucide-react'
+import { X, Loader2, Maximize2, Minimize2, FileText } from 'lucide-react'
 import ForceGraph2D, { type NodeObject, type LinkObject } from 'react-force-graph-2d'
 import { graphApi, type SourceNode } from '@/api/client'
 
@@ -184,6 +184,12 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
     const y = node.y ?? 0
     const r = node.isHighlighted ? 8 : 4
 
+    // Canvas는 CSS 변수를 직접 못 쓰므로 루트 computed style에서 읽어 테마 변경도 반영
+    const rootStyle = getComputedStyle(document.documentElement)
+    const goldColor = rootStyle.getPropertyValue('--color-gold').trim() || '#F37021'
+    const mutedColor = rootStyle.getPropertyValue('--color-text-muted').trim() || '#8a9fb8'
+    const textPrimary = rootStyle.getPropertyValue('--color-text-primary').trim() || '#e8edf4'
+
     if (node.isHighlighted && node.highlightColor) {
       // Glow effect
       ctx.beginPath()
@@ -196,12 +202,12 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
       ctx.arc(x, y, r, 0, 2 * Math.PI)
       ctx.fillStyle = node.highlightColor
       ctx.fill()
-      ctx.strokeStyle = '#fff'
+      ctx.strokeStyle = textPrimary
       ctx.lineWidth = 1.5
       ctx.stroke()
 
       // Citation number
-      ctx.fillStyle = '#fff'
+      ctx.fillStyle = textPrimary
       ctx.font = 'bold 8px monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -213,28 +219,28 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
       ctx.textAlign = 'center'
       ctx.fillText(node.name, x, y + r + 10)
     } else if (node.isReferenced) {
-      // 참조된 하위 노드: 점선 테두리 + 밝은 색
+      // 참조된 하위 노드: 점선 테두리 + gold 강조 (테마 반응)
       ctx.beginPath()
       ctx.arc(x, y, 6, 0, 2 * Math.PI)
-      ctx.fillStyle = '#F3702140'
+      ctx.fillStyle = `${goldColor}40`
       ctx.fill()
       ctx.setLineDash([2, 2])
-      ctx.strokeStyle = '#F37021'
+      ctx.strokeStyle = goldColor
       ctx.lineWidth = 1.5
       ctx.stroke()
       ctx.setLineDash([])
 
-      ctx.fillStyle = '#F37021'
+      ctx.fillStyle = goldColor
       ctx.font = 'bold 8px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(node.name.slice(0, 12), x, y + 12)
     } else {
       ctx.beginPath()
       ctx.arc(x, y, r, 0, 2 * Math.PI)
-      ctx.fillStyle = '#6b829e'
+      ctx.fillStyle = mutedColor
       ctx.fill()
 
-      ctx.fillStyle = '#6b829e88'
+      ctx.fillStyle = `${mutedColor}88`
       ctx.font = '7px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(node.name.slice(0, 8), x, y + r + 7)
@@ -375,7 +381,7 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                 nodeLabel={(node: any) => {
                   const sn = sourceNodes.find(s => s.id === node.id)
                   const docs = sn?.source_titles?.join(', ') || ''
-                  return `${node.name} (${node.type})${docs ? `\n📄 ${docs}` : ''}`
+                  return `${node.name} (${node.type})${docs ? `\n출처: ${docs}` : ''}`
                 }}
                 cooldownTicks={60}
                 enableZoomInteraction={true}
@@ -419,9 +425,12 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
                 {(() => {
                   const sn = sourceNodes.find(s => s.id === selectedNode.id)
                   return sn?.source_titles && sn.source_titles.length > 0 ? (
-                    <p className="text-2xs text-surface-600 mb-1">
-                      📄 {sn.source_titles.join(', ')}
-                      {sn.page_start != null && ` · p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}`}
+                    <p className="flex items-center gap-1 text-2xs text-surface-600 mb-1">
+                      <FileText size={10} className="shrink-0" aria-hidden="true" />
+                      <span>
+                        {sn.source_titles.join(', ')}
+                        {sn.page_start != null && ` · p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}`}
+                      </span>
                     </p>
                   ) : null
                 })()}

@@ -211,11 +211,14 @@ function IamTab() {
         {users.map(u => (
           <button
             key={u.user_id}
+            type="button"
             onClick={() => selectUser(u.user_id)}
             className={cn(
-              'w-full text-left px-3 py-2 rounded-md text-xs transition-colors',
+              'w-full text-left px-3 py-2 rounded-md text-xs',
               selectedUser === u.user_id ? 'bg-gold-500/20 text-gold-500 font-semibold' : 'text-surface-800 hover:bg-surface-100',
             )}
+            style={{ transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+            aria-current={selectedUser === u.user_id ? 'true' : undefined}
           >
             <p className="font-mono">{u.user_id}</p>
             <p className="text-2xs text-surface-600">{u.display_name}</p>
@@ -243,15 +246,17 @@ function IamTab() {
                   </button>
                   {t.custom && (
                     <button
+                      type="button"
                       onClick={async () => {
                         await api(`/api/v1/admin/permissions/template/${t.id}`, { method: 'DELETE' })
                         toast.success('템플릿 삭제', t.name)
                         fetchData()
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-status-error transition-opacity"
-                      title="삭제"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-surface-600 hover:text-status-error"
+                      style={{ transition: 'opacity 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+                      aria-label={`${t.name} 템플릿 삭제`}
                     >
-                      <XCircle size={11} />
+                      <XCircle size={11} aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -309,7 +314,12 @@ function IamTab() {
                         className="mt-0.5 accent-gold-500"
                       />
                       <div>
-                        <p className="text-xs text-surface-900 group-hover:text-gold-500 transition-colors">{p.label}</p>
+                        <p
+                          className="text-xs text-surface-900 group-hover:text-gold-500"
+                          style={{ transition: 'color 200ms var(--ease-out)' }}
+                        >
+                          {p.label}
+                        </p>
                         <p className="text-2xs text-surface-600">{p.description}</p>
                       </div>
                     </label>
@@ -422,11 +432,12 @@ function ModelTab() {
               <label
                 key={srv.id}
                 className={cn(
-                  'flex items-center gap-3 p-3 rounded-md cursor-pointer transition-colors',
+                  'flex items-center gap-3 p-3 rounded-md cursor-pointer',
                   url === srv.url
                     ? 'bg-gold-500/10 border border-gold-500/40'
                     : 'hover:bg-surface-200 border border-transparent',
                 )}
+                style={{ transition: 'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out)' }}
               >
                 <input
                   type="radio"
@@ -2204,9 +2215,10 @@ function SharedDocsTab() {
                 <div key={f}>
                   <div
                     className={cn(
-                      'flex items-center gap-2 px-3 py-2 rounded-md transition-colors group cursor-pointer',
+                      'flex items-center gap-2 px-3 py-2 rounded-md group cursor-pointer',
                       isActive ? 'bg-gold-500/10' : 'hover:bg-surface-200',
                     )}
+                    style={{ transition: 'background-color 200ms var(--ease-out)' }}
                   >
                     <input
                       type="checkbox"
@@ -2225,21 +2237,25 @@ function SharedDocsTab() {
                       <span className="text-xs text-surface-900 flex-1 truncate">{name}</span>
                     </div>
                     <button
+                      type="button"
                       onClick={() => loadHistory(f)}
                       className={cn(
-                        'text-surface-600 hover:text-gold-500 transition-all shrink-0',
-                        isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                        'text-surface-600 hover:text-gold-500 shrink-0',
+                        isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
                       )}
-                      title="버전 이력"
+                      style={{ transition: 'opacity 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+                      aria-label="버전 이력"
                     >
-                      <History size={12} />
+                      <History size={12} aria-hidden="true" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDeleteFile(f)}
-                      className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-status-error transition-all shrink-0"
-                      title="삭제"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-surface-600 hover:text-status-error shrink-0"
+                      style={{ transition: 'opacity 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+                      aria-label="파일 삭제"
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={12} aria-hidden="true" />
                     </button>
                     {isActive ? (
                       <ChevronDown size={12} className="text-gold-500 shrink-0" />
@@ -2283,7 +2299,8 @@ function SharedDocsTab() {
                             {versions.map((v, idx) => (
                               <div
                                 key={v.full_hash}
-                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-200 transition-colors group/ver"
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-200 group/ver"
+                                style={{ transition: 'background-color 200ms var(--ease-out)' }}
                               >
                                 {/* 타임라인 점 */}
                                 <div className="flex flex-col items-center shrink-0">
@@ -2308,11 +2325,13 @@ function SharedDocsTab() {
                                   </span>
                                 ) : (
                                   <button
+                                    type="button"
                                     onClick={() => handleRollback(f, v.full_hash)}
-                                    className="opacity-0 group-hover/ver:opacity-100 flex items-center gap-1 text-2xs text-surface-600 hover:text-gold-500 transition-all shrink-0 px-1.5 py-0.5 rounded hover:bg-gold-500/10"
-                                    title="이 버전으로 롤백"
+                                    className="opacity-0 group-hover/ver:opacity-100 focus-visible:opacity-100 flex items-center gap-1 text-2xs text-surface-600 hover:text-gold-500 shrink-0 px-1.5 py-0.5 rounded hover:bg-gold-500/10"
+                                    style={{ transition: 'opacity 200ms var(--ease-out), background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+                                    aria-label={`${v.commit_hash} 버전으로 롤백`}
                                   >
-                                    <RotateCcw size={10} />
+                                    <RotateCcw size={10} aria-hidden="true" />
                                     롤백
                                   </button>
                                 )}

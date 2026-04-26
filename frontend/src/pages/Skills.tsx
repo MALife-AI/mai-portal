@@ -45,7 +45,7 @@ type Tab = 'manage' | 'create' | 'marketplace'
 // 카테고리 색상 — 의미 기반 토큰 사용
 const CATEGORY_COLOR: Record<string, string> = {
   search: 'var(--color-blue)',
-  analysis: '#8B5CF6',
+  analysis: 'var(--color-reasoning)',
   report: 'var(--color-success)',
   custom: 'var(--color-gold)',
 }
@@ -781,7 +781,7 @@ export default function Skills() {
                 transition={{ duration: 0.2, ease: EASE }}
                 style={{ overflow: 'hidden' }}
               >
-                <div className="space-y-3 pl-4" style={{ borderLeft: '2px solid var(--color-border)' }}>
+                <div className="space-y-3 ps-4" style={{ borderInlineStart: '1px solid var(--color-border)' }}>
                   <p className="text-2xs text-surface-600">
                     외부 API 엔드포인트를 지정하면 에이전트가 해당 API를 호출합니다. 비우면 LLM이 내부에서 처리합니다.
                   </p>

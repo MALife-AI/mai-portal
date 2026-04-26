@@ -772,6 +772,11 @@ export default function KnowledgeGraph() {
       const isSelected = n.id === selectedNodeId
       const isHighlighted = n.highlighted
 
+      // Canvas에선 CSS 변수 직접 사용 불가 → 루트 computed style 조회
+      const rootStyle = getComputedStyle(document.documentElement)
+      const accentStroke = rootStyle.getPropertyValue('--color-text-primary').trim() || '#e8edf4'
+      const labelColor = rootStyle.getPropertyValue('--color-text-primary').trim() || '#e8edf4'
+
       ctx.beginPath()
       ctx.arc(n.x ?? 0, n.y ?? 0, size, 0, 2 * Math.PI)
 
@@ -781,12 +786,12 @@ export default function KnowledgeGraph() {
         ctx.shadowBlur = 12
       }
 
-      ctx.fillStyle = isSelected ? '#ffffff' : color
+      ctx.fillStyle = isSelected ? accentStroke : color
       ctx.fill()
       ctx.shadowBlur = 0
 
       if (isSelected || isHighlighted) {
-        ctx.strokeStyle = '#ffffff'
+        ctx.strokeStyle = accentStroke
         ctx.lineWidth = 2 / globalScale
         ctx.stroke()
       }
@@ -795,7 +800,7 @@ export default function KnowledgeGraph() {
       if (globalScale >= 2) {
         const label = n.name ?? n.id
         ctx.font = `${Math.max(10, size * 0.9) / globalScale}px JetBrains Mono, monospace`
-        ctx.fillStyle = 'rgba(232,237,244,0.95)'
+        ctx.fillStyle = labelColor
         ctx.textAlign = 'center'
         ctx.textBaseline = 'top'
         ctx.fillText(label, n.x ?? 0, (n.y ?? 0) + size + 2 / globalScale)
@@ -1207,23 +1212,28 @@ export default function KnowledgeGraph() {
       >
         {/* Collapse toggle */}
         <button
+          type="button"
           onClick={() => setRagOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-100 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-100"
+          style={{ transition: 'background-color 200ms var(--ease-out)' }}
+          aria-expanded={ragOpen}
+          aria-controls="graphrag-panel"
         >
           <div className="flex items-center gap-2">
-            <Layers size={13} className="text-gold-500" />
+            <Layers size={13} className="text-gold-500" aria-hidden="true" />
             <span className="text-xs font-semibold text-surface-800">GraphRAG 검색</span>
           </div>
           {ragOpen ? (
-            <ChevronDown size={13} className="text-surface-600" />
+            <ChevronDown size={13} className="text-surface-600" aria-hidden="true" />
           ) : (
-            <ChevronUp size={13} className="text-surface-600" />
+            <ChevronUp size={13} className="text-surface-600" aria-hidden="true" />
           )}
         </button>
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {ragOpen && (
             <motion.div
+              id="graphrag-panel"
               key="rag-panel"
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}

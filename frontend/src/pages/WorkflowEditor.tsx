@@ -22,6 +22,7 @@ import '@xyflow/react/dist/style.css'
 import {
   Play, Save, Trash2, Loader2,
   Wrench, Zap, GripVertical, Settings2, Cpu, Search, X,
+  Type, FolderOpen, Link2, User, Package, HeartPulse,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/store/useStore'
@@ -68,10 +69,10 @@ interface Workflow {
 // ─── 색상 ────────────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, string> = {
-  search: '#4A90D9',
-  analysis: '#F37021',
-  report: '#34C759',
-  custom: '#6b829e',
+  search: 'var(--color-blue)',
+  analysis: 'var(--color-gold)',
+  report: 'var(--color-success)',
+  custom: 'var(--color-text-muted)',
 }
 
 // ─── 커스텀 노드 ─────────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ function SkillNode({ data, selected }: NodeProps) {
         <GripVertical size={12} className="text-surface-600 cursor-grab" />
         <div className="w-2 h-2 rounded-full" style={{ background: catColor }} />
         <span className="text-xs font-semibold text-surface-900 truncate flex-1">{data.label as string}</span>
-        <span className="text-2xs font-mono px-1 py-0.5 rounded" style={{ background: catColor + '20', color: catColor }}>
+        <span className="text-2xs font-mono px-1 py-0.5 rounded" style={{ background: `color-mix(in srgb, ${catColor} 15%, transparent)`, color: catColor }}>
           {data.category as string}
         </span>
       </div>
@@ -114,7 +115,7 @@ function SkillNode({ data, selected }: NodeProps) {
                 type="target"
                 position={Position.Left}
                 id={`in-${key}`}
-                style={{ width: 8, height: 8, background: '#4A90D9', border: '2px solid var(--color-bg-secondary)', left: -4 }}
+                style={{ width: 8, height: 8, background: 'var(--color-blue)', border: '2px solid var(--color-bg-secondary)', left: -4 }}
               />
               <span className="font-mono text-gold-500">{key}</span>
               <span className="text-surface-600">: {io.type}</span>
@@ -135,7 +136,7 @@ function SkillNode({ data, selected }: NodeProps) {
                 type="source"
                 position={Position.Right}
                 id={`out-${key}`}
-                style={{ width: 8, height: 8, background: '#34C759', border: '2px solid var(--color-bg-secondary)', right: -4 }}
+                style={{ width: 8, height: 8, background: 'var(--color-success)', border: '2px solid var(--color-bg-secondary)', right: -4 }}
               />
             </div>
           ))}
@@ -144,10 +145,10 @@ function SkillNode({ data, selected }: NodeProps) {
 
       {/* 입출력 없으면 기본 핸들 */}
       {(!inputs || Object.keys(inputs).length === 0) && (
-        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4A90D9' }} />
+        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: 'var(--color-blue)' }} />
       )}
       {(!outputs || Object.keys(outputs).length === 0) && (
-        <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: '#34C759' }} />
+        <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: 'var(--color-success)' }} />
       )}
     </div>
   )
@@ -244,9 +245,14 @@ function GraphSearchField({
     setOpen(false)
   }
 
+  // 엔티티 타입별 팔레트 — CSS 변수 + 고유 카테고리 색 (그래프 시각화용)
   const TYPE_COLORS: Record<string, string> = {
-    product: '#F37021', person: '#4A90D9', organization: '#34C759',
-    regulation: '#AF52DE', concept: '#FF3B30', event: '#5AC8FA',
+    product: 'var(--color-gold)',
+    person: 'var(--color-blue)',
+    organization: 'var(--color-success)',
+    regulation: 'var(--color-reasoning)',
+    concept: 'var(--color-error)',
+    event: '#5AC8FA',
   }
 
   return (
@@ -266,7 +272,9 @@ function GraphSearchField({
           {selectedEntity && !loading && (
             <button
               onClick={handleClear}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center text-surface-500 hover:text-status-error hover:bg-surface-200 transition-colors"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center text-surface-500 hover:text-status-error hover:bg-surface-200"
+              style={{ transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+              aria-label="선택 해제"
             >
               <X size={8} />
             </button>
@@ -275,20 +283,23 @@ function GraphSearchField({
       </div>
 
       {/* 선택된 엔티티 뱃지 */}
-      {selectedEntity && (
-        <div
-          className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-2xs"
-          style={{
-            background: (TYPE_COLORS[selectedEntity.entity_type] || '#6b829e') + '14',
-            border: `1px solid ${TYPE_COLORS[selectedEntity.entity_type] || '#6b829e'}33`,
-          }}
-        >
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: TYPE_COLORS[selectedEntity.entity_type] || '#6b829e' }} />
-          <span className="font-semibold text-surface-900">{selectedEntity.name}</span>
-          <span className="text-surface-600">{selectedEntity.entity_type}</span>
-          <span className="text-surface-500 ml-auto">x{selectedEntity.mentions}</span>
-        </div>
-      )}
+      {selectedEntity && (() => {
+        const entityColor = TYPE_COLORS[selectedEntity.entity_type] || 'var(--color-text-muted)'
+        return (
+          <div
+            className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded text-2xs"
+            style={{
+              background: `color-mix(in srgb, ${entityColor} 8%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${entityColor} 20%, transparent)`,
+            }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full" style={{ background: entityColor }} />
+            <span className="font-semibold text-surface-900">{selectedEntity.name}</span>
+            <span className="text-surface-600">{selectedEntity.entity_type}</span>
+            <span className="text-surface-500 ml-auto">x{selectedEntity.mentions}</span>
+          </div>
+        )
+      })()}
 
       {/* 검색 결과 드롭다운 */}
       {open && results.length > 0 && (
@@ -297,12 +308,14 @@ function GraphSearchField({
           style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
         >
           {results.map(entity => {
-            const color = TYPE_COLORS[entity.entity_type] || '#6b829e'
+            const color = TYPE_COLORS[entity.entity_type] || 'var(--color-text-muted)'
             return (
               <button
                 key={entity.id}
+                type="button"
                 onClick={() => handleSelect(entity)}
-                className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-200 transition-colors"
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-200"
+                style={{ transition: 'background-color 200ms var(--ease-out)' }}
               >
                 <div className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                 <div className="flex-1 min-w-0">
@@ -375,7 +388,7 @@ function InputNode({ data, selected }: NodeProps) {
               type="source"
               position={Position.Right}
               id={`out-${f.name}`}
-              style={{ width: 8, height: 8, background: '#34C759', border: '2px solid var(--color-bg-secondary)', right: -4, top: '50%' }}
+              style={{ width: 8, height: 8, background: 'var(--color-success)', border: '2px solid var(--color-bg-secondary)', right: -4, top: '50%' }}
             />
           </div>
         ))}
@@ -401,7 +414,7 @@ function GuardrailNode({ data, selected }: NodeProps) {
       style={{ background: 'var(--color-bg-secondary)' }}
     >
       <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ background: 'rgba(245,166,35,0.1)', borderBottom: '1px solid var(--color-border)' }}>
-        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4A90D9' }} />
+        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: 'var(--color-blue)' }} />
         <Settings2 size={12} className="text-status-warning" />
         <span className="text-xs font-semibold text-surface-900">가드레일</span>
         <span className="text-2xs px-1 py-0.5 rounded bg-status-warning/20 text-status-warning font-semibold">필수</span>
@@ -413,7 +426,7 @@ function GuardrailNode({ data, selected }: NodeProps) {
             <span>{r}</span>
           </div>
         ))}
-        <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: '#34C759' }} />
+        <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: 'var(--color-success)' }} />
       </div>
     </div>
   )
@@ -431,7 +444,7 @@ function LLMNode({ data, selected }: NodeProps) {
       style={{ background: 'var(--color-bg-secondary)' }}
     >
       <div className="flex items-center gap-2 px-3 py-2 rounded-t-lg" style={{ background: 'rgba(243,112,33,0.1)', borderBottom: '1px solid var(--color-border)' }}>
-        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4A90D9' }} />
+        <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: 'var(--color-blue)' }} />
         <Cpu size={12} className="text-gold-500" />
         <span className="text-xs font-semibold text-surface-900">LLM 응답 생성</span>
       </div>
@@ -747,27 +760,27 @@ export default function WorkflowEditor() {
           <h3 className="text-2xs font-semibold text-surface-600 uppercase mb-1.5">입력 노드</h3>
           <div className="grid grid-cols-2 gap-1">
             {[
-              { type: 'text', label: '텍스트', icon: '📝' },
-              { type: 'file', label: '파일', icon: '📁' },
-              { type: 'graph', label: '그래프', icon: '🔗' },
-              { type: 'customer', label: '고객', icon: '👤' },
-              { type: 'product', label: '상품', icon: '📦' },
-              { type: 'underwriting', label: '언더라이팅', icon: '🏥' },
-            ].map(inp => (
+              { type: 'text', label: '텍스트', Icon: Type },
+              { type: 'file', label: '파일', Icon: FolderOpen },
+              { type: 'graph', label: '그래프', Icon: Link2 },
+              { type: 'customer', label: '고객', Icon: User },
+              { type: 'product', label: '상품', Icon: Package },
+              { type: 'underwriting', label: '언더라이팅', Icon: HeartPulse },
+            ].map(({ type, label, Icon }) => (
               <button
-                key={inp.type}
+                key={type}
                 type="button"
-                onClick={() => addInputNode(inp.type)}
+                onClick={() => addInputNode(type)}
                 className="flex items-center gap-1.5 p-1.5 rounded text-2xs hover:bg-surface-200"
                 style={{
                   border: '1px solid var(--color-border)',
                   minHeight: '30px',
                   transition: 'background-color 200ms var(--ease-out)',
                 }}
-                aria-label={`${inp.label} 입력 노드 추가`}
+                aria-label={`${label} 입력 노드 추가`}
               >
-                <span aria-hidden="true">{inp.icon}</span>
-                <span className="text-surface-800">{inp.label}</span>
+                <Icon size={12} className="text-surface-600 shrink-0" aria-hidden="true" />
+                <span className="text-surface-800">{label}</span>
               </button>
             ))}
           </div>

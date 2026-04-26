@@ -387,9 +387,9 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-semibold"
               style={{
                 minHeight: '20px',
-                background: 'color-mix(in srgb, #8B5CF6 12%, transparent)',
-                color: '#8B5CF6',
-                border: '1px solid color-mix(in srgb, #8B5CF6 25%, transparent)',
+                background: 'color-mix(in srgb, var(--color-reasoning) 12%, transparent)',
+                color: 'var(--color-reasoning)',
+                border: '1px solid color-mix(in srgb, var(--color-reasoning) 25%, transparent)',
                 transition: 'opacity 200ms var(--ease-out)',
               }}
               aria-label={`참조 지식그래프 보기 (${message.source_nodes.length}개 출처)`}
@@ -402,9 +402,9 @@ function MessageBubble({ message, onSelectOption }: { message: AgentMessage; onS
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-semibold"
               style={{
-                background: 'color-mix(in srgb, #8B5CF6 12%, transparent)',
-                color: '#8B5CF6',
-                border: '1px solid color-mix(in srgb, #8B5CF6 25%, transparent)',
+                background: 'color-mix(in srgb, var(--color-reasoning) 12%, transparent)',
+                color: 'var(--color-reasoning)',
+                border: '1px solid color-mix(in srgb, var(--color-reasoning) 25%, transparent)',
               }}
               aria-label="GraphRAG 처리됨 — 출처 없음"
             >

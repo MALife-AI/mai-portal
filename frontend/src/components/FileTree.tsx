@@ -126,11 +126,13 @@ export function FileTree({
           </button>
           {!selectMode && onDeleteFile && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onDeleteFile(node.path) }}
-              className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-status-error/20 text-surface-600 hover:text-status-error transition-all"
-              title="파일 삭제"
+              className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-status-error/20 text-surface-600 hover:text-status-error"
+              style={{ transition: 'opacity 200ms var(--ease-out), background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+              aria-label={`${node.name} 파일 삭제`}
             >
-              <Trash2 size={11} />
+              <Trash2 size={11} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -191,11 +193,13 @@ export function FileTree({
         </button>
         {!selectMode && onDeleteFolder && !isRootFolder && (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onDeleteFolder(node.path) }}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/folder:opacity-100 hover:bg-status-error/20 text-surface-600 hover:text-status-error transition-all"
-            title="폴더 삭제"
+            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/folder:opacity-100 focus-visible:opacity-100 hover:bg-status-error/20 text-surface-600 hover:text-status-error"
+            style={{ transition: 'opacity 200ms var(--ease-out), background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+            aria-label={`${node.name} 폴더 삭제`}
           >
-            <Trash2 size={11} />
+            <Trash2 size={11} aria-hidden="true" />
           </button>
         )}
 

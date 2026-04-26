@@ -28,6 +28,8 @@
   --color-bubble-user-from: #1B3A6B;
   --color-bubble-user-to: #2C5F9E;
   --color-overlay: rgba(0, 0, 0, 0.7);
+  /* GraphRAG/추론 의미색 — LILA BAN 대응: chroma를 낮춰 네온 아닌 잉크톤 보라 */
+  --color-reasoning: oklch(0.6 0.12 285);
 
   --sidebar-width: 240px;
   --header-height: 56px;
@@ -65,6 +67,8 @@
   --color-bubble-user-from: #dbeafe;
   --color-bubble-user-to: #bfdbfe;
   --color-overlay: rgba(17, 24, 39, 0.5);
+  /* 라이트 테마에선 더 어두운 잉크 보라로 대비 확보 */
+  --color-reasoning: oklch(0.45 0.14 285);
 
   --sidebar-width: 240px;
   --header-height: 56px;
@@ -303,10 +307,11 @@ body {
 }
 
 .markdown-content blockquote {
-  border-left: 3px solid var(--color-gold);
   margin: 1em 0;
-  padding: 0.5em 1em;
-  background: rgba(243, 112, 33, 0.05);
+  padding: 0.75em 1em;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-gold) 5%, transparent);
   color: var(--color-text-secondary);
   font-style: italic;
 }
@@ -593,16 +598,17 @@ body {
 }
 
 /* ─── Execution Log Steps ────────────────────────────────────────────────── */
+/* Vertical timeline rail — 1px 얇은 가이드 + 상태별 도트만 색상 담당 */
 .log-step {
-  border-left: 2px solid var(--color-border);
-  padding-left: 1rem;
+  border-inline-start: 1px solid var(--color-border);
+  padding-inline-start: 1rem;
   position: relative;
 }
 
 .log-step::before {
   content: '';
   position: absolute;
-  left: -5px;
+  inset-inline-start: -4px;
   top: 0.5rem;
   width: 8px;
   height: 8px;
@@ -738,10 +744,23 @@ body {
   }
 }
 
-.toast.success { border-left: 3px solid var(--color-success); }
-.toast.error { border-left: 3px solid var(--color-error); }
-.toast.warning { border-left: 3px solid var(--color-warning); }
-.toast.info { border-left: 3px solid var(--color-blue); }
+/* 상태 표시는 leading icon(Toast.tsx)이 담당. border tint + background tint로 톤만 전달 */
+.toast.success {
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 6%, var(--color-bg-secondary));
+}
+.toast.error {
+  border-color: color-mix(in srgb, var(--color-error) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-error) 6%, var(--color-bg-secondary));
+}
+.toast.warning {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning) 6%, var(--color-bg-secondary));
+}
+.toast.info {
+  border-color: color-mix(in srgb, var(--color-blue) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-blue) 6%, var(--color-bg-secondary));
+}
 
 /* ─── Modal ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
