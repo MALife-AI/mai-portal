@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import ForceGraph2D, { type NodeObject, type LinkObject } from 'react-force-graph-2d'
-import ForceGraph3D from 'react-force-graph-3d'
+
+// 3D 그래프는 사용자가 명시적으로 토글을 켠 경우에만 로드 (추가 ~200KB 라이브러리)
+const ForceGraph3D = lazy(() => import('react-force-graph-3d'))
 import {
   Search,
   RefreshCw,
@@ -756,7 +758,7 @@ export default function KnowledgeGraph() {
       }))
 
     return { nodes, links }
-  }, [activeVizData, typeFilter, highlightId])
+  }, [activeVizData, typeFilter, highlightId, nodeCommunityMap])
 
   // ── Canvas node painter ────────────────────────────────────────────────────
 
@@ -1276,31 +1278,44 @@ function GraphCanvas({ data, paintNode, paintLink, onNodeClick, onNodeHover, is3
   if (is3D) {
     return (
       <div ref={containerRef} className="w-full h-full">
-        <ForceGraph3D
-          graphData={data}
-          width={dimensions.width}
-          height={dimensions.height}
-          onNodeClick={onNodeClick}
-          onNodeHover={onNodeHover}
-          nodeLabel={(node) => (node as GraphNode).name ?? ''}
-          nodeColor={(node) => {
-            const n = node as GraphNode
-            return colorBy === 'community'
-              ? communityColor(n.community)
-              : entityColor(n.type ?? '')
-          }}
-          nodeVal={(node) => nodeSize((node as GraphNode).mentions ?? 1)}
-          nodeOpacity={0.9}
-          linkDirectionalArrowLength={4}
-          linkDirectionalArrowRelPos={1}
-          linkColor={(link) => edgeColor((link as GraphLink).type ?? '')}
-          linkWidth={(link) => Math.max(0.5, ((link as GraphLink).weight ?? 1) * 0.8)}
-          linkOpacity={0.6}
-          backgroundColor="#0d1117"
-          cooldownTicks={120}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-        />
+        <Suspense
+          fallback={
+            <div
+              className="flex items-center justify-center h-full"
+              role="status"
+              aria-live="polite"
+            >
+              <RefreshCw size={24} className="animate-spin text-gold-500" aria-hidden="true" />
+              <span className="ml-2 text-sm text-surface-600">3D 엔진 로드 중...</span>
+            </div>
+          }
+        >
+          <ForceGraph3D
+            graphData={data}
+            width={dimensions.width}
+            height={dimensions.height}
+            onNodeClick={onNodeClick}
+            onNodeHover={onNodeHover}
+            nodeLabel={(node) => (node as GraphNode).name ?? ''}
+            nodeColor={(node) => {
+              const n = node as GraphNode
+              return colorBy === 'community'
+                ? communityColor(n.community)
+                : entityColor(n.type ?? '')
+            }}
+            nodeVal={(node) => nodeSize((node as GraphNode).mentions ?? 1)}
+            nodeOpacity={0.9}
+            linkDirectionalArrowLength={4}
+            linkDirectionalArrowRelPos={1}
+            linkColor={(link) => edgeColor((link as GraphLink).type ?? '')}
+            linkWidth={(link) => Math.max(0.5, ((link as GraphLink).weight ?? 1) * 0.8)}
+            linkOpacity={0.6}
+            backgroundColor="#0d1117"
+            cooldownTicks={120}
+            d3AlphaDecay={0.02}
+            d3VelocityDecay={0.3}
+          />
+        </Suspense>
       </div>
     )
   }

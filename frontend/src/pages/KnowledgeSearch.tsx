@@ -1,11 +1,25 @@
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Network, Combine } from 'lucide-react'
+import { Search, Network, Combine, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// 기존 페이지를 그대로 재사용
-import SearchPage from './Search'
-import KnowledgeGraphPage from './KnowledgeGraph'
+// 각 탭은 lazy-load — react-force-graph(135KB)·recharts 같은 무거운 의존성이
+// 실제로 탭이 열릴 때까지 번들에서 분리되도록 함
+const SearchPage = lazy(() => import('./Search'))
+const KnowledgeGraphPage = lazy(() => import('./KnowledgeGraph'))
+
+function TabFallback() {
+  return (
+    <div
+      className="flex items-center justify-center h-full"
+      role="status"
+      aria-live="polite"
+      aria-label="탭 불러오는 중"
+    >
+      <Loader2 size={20} className="animate-spin text-gold-500" aria-hidden="true" />
+    </div>
+  )
+}
 
 type Mode = 'integrated' | 'document' | 'graph'
 
@@ -90,24 +104,26 @@ export default function KnowledgeSearch() {
           transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
           className="h-full"
         >
-          {mode === 'graph' && <KnowledgeGraphPage />}
-          {mode === 'document' && <SearchPage />}
-          {mode === 'integrated' && (
-            <div className="flex h-full">
-              {/* 좌측: 문서 검색 */}
-              <section
-                className="flex-1 overflow-y-auto"
-                style={{ borderRight: '1px solid var(--color-border)' }}
-                aria-label="문서 검색"
-              >
-                <SearchPage hideHeader />
-              </section>
-              {/* 우측: 그래프 */}
-              <section className="flex-1 overflow-hidden" aria-label="지식 그래프">
-                <KnowledgeGraphPage />
-              </section>
-            </div>
-          )}
+          <Suspense fallback={<TabFallback />}>
+            {mode === 'graph' && <KnowledgeGraphPage />}
+            {mode === 'document' && <SearchPage />}
+            {mode === 'integrated' && (
+              <div className="flex h-full">
+                {/* 좌측: 문서 검색 */}
+                <section
+                  className="flex-1 overflow-y-auto"
+                  style={{ borderRight: '1px solid var(--color-border)' }}
+                  aria-label="문서 검색"
+                >
+                  <SearchPage hideHeader />
+                </section>
+                {/* 우측: 그래프 */}
+                <section className="flex-1 overflow-hidden" aria-label="지식 그래프">
+                  <KnowledgeGraphPage />
+                </section>
+              </div>
+            )}
+          </Suspense>
         </motion.div>
       </div>
     </div>
