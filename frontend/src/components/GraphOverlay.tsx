@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Loader2, Maximize2, Minimize2 } from 'lucide-react'
 import ForceGraph2D, { type NodeObject, type LinkObject } from 'react-force-graph-2d'
-import { graphApi, type GraphVisualizationData, type SourceNode } from '@/api/client'
+import { graphApi, type SourceNode } from '@/api/client'
 
 const CITE_COLORS = [
   '#F37021', '#4A90D9', '#34C759', '#AF52DE', '#FF3B30',
@@ -177,7 +177,7 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
         }, 300)
       }
     }
-  }, [loading, graphData])
+  }, [loading, graphData, sourceNodes, focusIndex])
 
   const paintNode = useCallback((node: GNode, ctx: CanvasRenderingContext2D) => {
     const x = node.x ?? 0

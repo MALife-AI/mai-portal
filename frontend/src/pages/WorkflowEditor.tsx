@@ -20,8 +20,8 @@ import '@xyflow/react/dist/style.css'
 
 /* React Flow 스타일은 index.css의 .workflow-canvas 섹션에 정의 */
 import {
-  Play, Save, Trash2, Plus, Loader2, ChevronRight,
-  Wrench, Zap, ArrowRight, GripVertical, Settings2, Cpu, Search, X,
+  Play, Save, Trash2, Loader2,
+  Wrench, Zap, GripVertical, Settings2, Cpu, Search, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/store/useStore'
@@ -51,7 +51,7 @@ interface Skill {
   method: string
   category: string
   display_name?: string
-  params: Record<string, any>
+  params: Record<string, { type: string; description?: string; required?: boolean }>
   inputs?: Record<string, SkillIO>
   outputs?: Record<string, SkillIO>
   depends_on?: string[]
@@ -160,7 +160,7 @@ interface GraphEntity {
   name: string
   entity_type: string
   mentions: number
-  properties?: Record<string, any>
+  properties?: Record<string, unknown>
 }
 
 function GraphSearchField({
@@ -532,8 +532,8 @@ export default function WorkflowEditor() {
         onFieldChange: (idx: number, value: string) => {
           setNodes(nds => nds.map(n => {
             if (n.id !== id) return n
-            const updatedFields = [...(n.data.fields as any[])]
-            updatedFields[idx] = { ...updatedFields[idx], value }
+            const updatedFields = [...((n.data.fields ?? []) as Array<{ label: string; value: string }>)]
+            updatedFields[idx] = { ...updatedFields[idx]!, value }
             return { ...n, data: { ...n.data, fields: updatedFields } }
           }))
         },

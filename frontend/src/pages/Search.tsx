@@ -265,6 +265,7 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
                 placeholder="자연어로 검색하세요... 예: 보험 면책 조항 관련 규정"
                 className="input-field pl-10 text-base"
                 style={{ fontSize: '0.9375rem', paddingLeft: '2.5rem' }}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- 전용 검색 페이지에서는 포커스 유도, 통합 모드에선 꺼짐
                 autoFocus={!hideHeader}
                 autoComplete="off"
                 aria-busy={isLoading}

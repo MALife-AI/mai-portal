@@ -21,7 +21,7 @@ import {
   Menu,
   X,
 } from 'lucide-react'
-import { agentApi, type ExecutionStep, type StreamCallbacks, type ClarificationData } from '@/api/client'
+import { agentApi, type ExecutionStep, type ClarificationData } from '@/api/client'
 import { useStore, useToast, type AgentMessage, type AgentThread } from '@/store/useStore'
 import { formatRelativeTime, generateId, cn } from '@/lib/utils'
 import { MarkdownViewer } from '@/components/MarkdownViewer'
@@ -660,7 +660,12 @@ export default function AgentConsole() {
   const [runningSkills, setRunningSkills] = useState<string[]>([])  // 실행 중인 스킬명
   const [showExecSidebar, setShowExecSidebar] = useState(true)
   const [showMobileThreads, setShowMobileThreads] = useState(false)
-  const [agentUi, setAgentUi] = useState<any>(null)
+  interface AgentUiConfig {
+    welcome_title?: string
+    welcome_subtitle?: string
+    suggestions?: string[]
+  }
+  const [agentUi, setAgentUi] = useState<AgentUiConfig | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -679,7 +684,13 @@ export default function AgentConsole() {
   const selectedServerInfo = servers.find(s => s.id === selectedServer)
 
   // 워크플로우 목록
-  interface SavedWorkflow { id: string; name: string; nodes: any[]; edges: any[] }
+  interface WorkflowNode {
+    id: string
+    type?: string
+    data?: { label?: string; skillData?: { skill_name?: string } }
+  }
+  interface WorkflowEdge { source: string; target: string }
+  interface SavedWorkflow { id: string; name: string; nodes: WorkflowNode[]; edges: WorkflowEdge[] }
   const [workflows, setWorkflows] = useState<SavedWorkflow[]>([])
   const [showWorkflows, setShowWorkflows] = useState(false)
 
@@ -1312,8 +1323,8 @@ export default function AgentConsole() {
                             type="button"
                             role="menuitem"
                             onClick={() => {
-                              const skillNodes = wf.nodes.filter((n: any) => n.type === 'skill')
-                              const skillNames = skillNodes.map((n: any) => n.data?.label || n.data?.skillData?.skill_name).join(', ')
+                              const skillNodes = wf.nodes.filter((n) => n.type === 'skill')
+                              const skillNames = skillNodes.map((n) => n.data?.label || n.data?.skillData?.skill_name).join(', ')
                               sendMessage(`[워크플로우: ${wf.name}] 다음 스킬을 순서대로 실행해줘: ${skillNames}`)
                               setShowWorkflows(false)
                             }}
@@ -1322,7 +1333,7 @@ export default function AgentConsole() {
                           >
                             <p className="text-xs font-semibold text-surface-900">{wf.name}</p>
                             <p className="text-2xs text-surface-600 mt-0.5">
-                              {wf.nodes.filter((n: any) => n.type === 'skill').length}개 스킬 · {wf.edges.length}개 연결
+                              {wf.nodes.filter((n) => n.type === 'skill').length}개 스킬 · {wf.edges.length}개 연결
                             </p>
                           </button>
                         ))}

@@ -19,6 +19,12 @@ async function api(path: string, opts: RequestInit = {}) {
   return r.json()
 }
 
+interface SkillParam {
+  type: string
+  description?: string
+  required?: boolean
+}
+
 interface Skill {
   skill_name: string
   display_name?: string
@@ -26,9 +32,9 @@ interface Skill {
   endpoint: string
   method: string
   category: string
-  params: Record<string, any>
-  inputs?: Record<string, any>
-  outputs?: Record<string, any>
+  params: Record<string, SkillParam>
+  inputs?: Record<string, unknown>
+  outputs?: Record<string, unknown>
   depends_on?: string[]
   body?: string
   installed?: boolean
@@ -94,7 +100,7 @@ function SkillCard({ skill, onDelete, onEdit, showApi }: { skill: Skill; onDelet
               </div>
               {Object.keys(skill.params || {}).length > 0 && (
                 <ul className="flex flex-wrap gap-1 mt-2" aria-label="파라미터">
-                  {Object.entries(skill.params).map(([k, v]: [string, any]) => (
+                  {Object.entries(skill.params).map(([k, v]) => (
                     <li
                       key={k}
                       className="px-1.5 py-0.5 rounded text-2xs font-mono bg-surface-200 text-surface-700"
@@ -504,7 +510,7 @@ export default function Skills() {
 
   function openEditor(skill: Skill) {
     setEditSkill({ ...skill })
-    const params = Object.entries(skill.params || {}).map(([name, v]: [string, any]) => ({
+    const params = Object.entries(skill.params || {}).map(([name, v]) => ({
       name,
       type: v.type || 'string',
       description: v.description || '',
@@ -515,7 +521,7 @@ export default function Skills() {
 
   async function handleUpdate() {
     if (!editSkill) return
-    const params: Record<string, any> = {}
+    const params: Record<string, SkillParam> = {}
     for (const p of editParams) {
       if (p.name.trim()) {
         params[p.name.trim()] = { type: p.type, description: p.description, required: p.required }

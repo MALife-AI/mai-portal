@@ -29,7 +29,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
-import { vaultApi, ingestApi, getUserId, type DocResponse, type IngestResponse } from '@/api/client'
+import { vaultApi, ingestApi, type DocResponse, type IngestResponse } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { FileTree } from '@/components/FileTree'
 import { MarkdownViewer, FrontmatterDisplay, parseFrontmatter } from '@/components/MarkdownViewer'
@@ -449,7 +449,8 @@ tags: []
     lastClickedRef.current = path
     setSelectedPaths((prev) => {
       const next = new Set(prev)
-      next.has(path) ? next.delete(path) : next.add(path)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
       return next
     })
   }
@@ -462,7 +463,8 @@ tags: []
     lastClickedRef.current = folderPath
     setSelectedFolders((prev) => {
       const next = new Set(prev)
-      next.has(folderPath) ? next.delete(folderPath) : next.add(folderPath)
+      if (next.has(folderPath)) next.delete(folderPath)
+      else next.add(folderPath)
       return next
     })
     setSelectedPaths((prev) => {

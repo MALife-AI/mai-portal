@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu, Menu, X } from 'lucide-react'
+import { Cpu, Menu } from 'lucide-react'
 import { getUserId } from '@/api/client'
 import { Sidebar } from './Sidebar'
 import { ToastContainer } from './Toast'

@@ -31,8 +31,14 @@ function ProfileSection() {
 
   useEffect(() => {
     api('/api/v1/admin/iam').then(data => {
-      const users = data.users || []
-      const me = users.find((u: any) => u.user_id === userId)
+      const users: Array<{
+        user_id: string
+        display_name?: string
+        email?: string
+        department?: string
+        roles?: string[]
+      }> = data.users || []
+      const me = users.find((u) => u.user_id === userId)
       if (me) {
         setProfile({
           display_name: me.display_name || me.user_id,
@@ -229,13 +235,19 @@ function AgentSettingsSection() {
   const globalPromptId = useId()
   const styleGroupId = useId()
 
-  const [settings, setSettings] = useState<Record<string, any>>(() => {
+  interface AgentSettings {
+    memory_enabled?: boolean
+    auto_citation?: boolean
+    response_style?: string
+    global_prompt?: string
+  }
+  const [settings, setSettings] = useState<AgentSettings>(() => {
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     } catch { return {} }
   })
 
-  function update(key: string, value: any) {
+  function update<K extends keyof AgentSettings>(key: K, value: AgentSettings[K]) {
     const next = { ...settings, [key]: value }
     setSettings(next)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))

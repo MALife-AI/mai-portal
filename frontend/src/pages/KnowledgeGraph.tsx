@@ -821,7 +821,6 @@ export default function KnowledgeGraph() {
   // ── Send GraphRAG context to agent ─────────────────────────────────────────
 
   function handleSendToAgent(context: string) {
-    const threadId = `thread_graph_${Date.now()}`
     // Store to localStorage so AgentConsole can pick it up
     try {
       localStorage.setItem('malife_pending_agent_query', context)

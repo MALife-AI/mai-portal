@@ -7,7 +7,6 @@ import {
   Search,
   ShieldCheck,
   ChevronDown,
-  ChevronRight,
   User,
   Wrench,
   Sun,

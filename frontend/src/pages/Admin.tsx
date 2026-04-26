@@ -8,12 +8,11 @@ import {
   UploadCloud, FolderOpen, Brain, History, RotateCcw,
   ChevronDown, ChevronRight, Square, Terminal, Play,
 } from 'lucide-react'
-import { adminApi, getUserId, ingestApi, graphApi, type IamConfig, type KillSwitchStatus } from '@/api/client'
+import { adminApi, getUserId, ingestApi, type KillSwitchStatus } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { cn } from '@/lib/utils'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 
 const API = ''
@@ -24,8 +23,6 @@ async function api(path: string, opts: RequestInit = {}) {
 
 interface ChecklistItem { item: string; status: boolean; detail?: string }
 interface ViolationItem { user_id: string; skill_name?: string; action?: string; started_at?: string }
-interface ServiceItem { name: string; status: string; port?: number }
-interface MemoryInfo { used_gb: number; total_gb: number; percent: number }
 
 interface MetricsData {
   total_queries: number
@@ -54,14 +51,6 @@ interface GPUServer {
   description?: string
 }
 
-interface InfraData {
-  cpu_percent: number
-  processor: string
-  memory?: MemoryInfo
-  disk_free_gb: number
-  gpu: string
-  services?: ServiceItem[]
-}
 
 interface GuardrailConfig {
   prompt_injection: { enabled: boolean; risk_threshold: number; max_input_length: number; block_action: string }
@@ -338,7 +327,7 @@ function IamTab() {
 // ─── Model Config ────────────────────────────────────────────────────────────
 
 function ModelTab() {
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null)
+  const [, setConfig] = useState<Record<string, unknown> | null>(null)
   const [models, setModels] = useState<{ name: string; source: string; size: string }[]>([])
   const [gpuServers, setGpuServers] = useState<GPUServer[]>([])
   const [provider, setProvider] = useState('')
@@ -1291,7 +1280,7 @@ function AuditLogPanel() {
 
 function DepartmentsTab() {
   const [departments, setDepartments] = useState<{ id: string; name: string; description: string }[]>([])
-  const [isSavingModel, setIsSavingModel] = useState(false)
+  const [isSavingModel] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [formId, setFormId] = useState('')
   const [formName, setFormName] = useState('')
@@ -1418,77 +1407,6 @@ function DepartmentsTab() {
             </div>
           ))
         )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Infra ───────────────────────────────────────────────────────────────────
-
-function GpuServerMetrics() {
-  const [data, setData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-
-  const refresh = useCallback(() => {
-    setLoading(true)
-    api('/api/v1/admin/inference-status').then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
-  }, [])
-
-  useEffect(() => { refresh(); const t = setInterval(refresh, 10000); return () => clearInterval(t) }, [refresh])
-
-  if (!data?.servers?.length) return null
-
-  return (
-    <div className="panel p-4">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-surface-800">GPU 추론 서버 메트릭</p>
-        <button onClick={refresh} className="btn-secondary text-2xs flex items-center gap-1" disabled={loading}>
-          <RefreshCw size={10} className={loading ? 'animate-spin' : ''} /> 새로고침
-        </button>
-      </div>
-      <div className="space-y-3">
-        {data.servers.map((srv: any) => (
-          <div key={srv.id || srv.url} className="rounded-md p-3" style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className={cn('w-2.5 h-2.5 rounded-full', srv.signal === 'green' ? 'bg-status-success' : srv.signal === 'yellow' ? 'bg-status-warning' : 'bg-status-error')} />
-                <span className="text-xs font-semibold text-surface-900">{srv.name || srv.id}</span>
-                <span className="text-2xs font-mono text-surface-600">{srv.url}</span>
-              </div>
-              <span className={cn('tag text-2xs', srv.online ? 'tag-success' : 'tag-error')}>{srv.label}</span>
-            </div>
-            {srv.online && (
-              <div className="grid grid-cols-5 gap-2 mt-2">
-                <div>
-                  <p className="text-2xs text-surface-600">슬롯</p>
-                  <p className="text-sm font-bold text-surface-900">{srv.slots_busy}/{srv.slots_total}</p>
-                </div>
-                <div>
-                  <p className="text-2xs text-surface-600">부하</p>
-                  <p className="text-sm font-bold text-surface-900">{srv.load_pct}%</p>
-                </div>
-                {srv.metrics?.tokens_per_second != null && (
-                  <div>
-                    <p className="text-2xs text-surface-600">토큰/s</p>
-                    <p className="text-sm font-bold text-gold-500">{srv.metrics.tokens_per_second}</p>
-                  </div>
-                )}
-                {srv.metrics?.tokens_predicted_total != null && (
-                  <div>
-                    <p className="text-2xs text-surface-600">총 토큰</p>
-                    <p className="text-sm font-bold text-surface-900">{Math.round(srv.metrics.tokens_predicted_total).toLocaleString()}</p>
-                  </div>
-                )}
-                {srv.metrics?.kv_cache_usage_ratio != null && (
-                  <div>
-                    <p className="text-2xs text-surface-600">KV 캐시</p>
-                    <p className="text-sm font-bold text-surface-900">{Math.round(srv.metrics.kv_cache_usage_ratio * 100)}%</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
       </div>
     </div>
   )
