@@ -258,13 +258,27 @@ export interface ClarificationData {
   allow_custom_input: boolean
 }
 
+export interface SourceNode {
+  id: string
+  name: string
+  type: string
+  description?: string
+  match_reason?: string
+  source_titles: string[]
+  page_start?: number | null
+  page_end?: number | null
+  section_ref?: string
+  effective_date?: string
+  security_grade?: number
+}
+
 export interface StreamCallbacks {
   onToken: (token: string) => void
   onMetadata: (meta: {
     thread_id: string
     execution_log: ExecutionStep[]
     reasoning?: string
-    source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
+    source_nodes?: SourceNode[]
   }) => void
   onClarification?: (data: ClarificationData) => void
   onSkillStatus?: (data: { status: 'running' | 'done'; skills: string[] }) => void
@@ -446,6 +460,7 @@ export interface GraphVisualizationData {
     source: string
     target: string
     type: string
+    relation_type?: string
     weight: number
   }>
   communities: GraphCommunity[]
@@ -457,6 +472,20 @@ export interface GraphStats {
   entity_types: Record<string, number>
   relation_types: Record<string, number>
   communities: number
+}
+
+export interface BuildProgress {
+  status: string
+  total_files: number
+  processed: number
+  entities: number
+  relationships: number
+  errors?: number
+  current_file: string
+  retry_round?: number
+  retry_total?: number
+  retry_done?: number
+  retry_failed?: number
 }
 
 export interface GraphRAGSearchResult {
@@ -499,9 +528,7 @@ export const graphApi = {
     ),
 
   getBuildProgress: () =>
-    request<{ status: string; total_files: number; processed: number; entities: number; relationships: number; errors: number; current_file: string }>(
-      '/api/v1/graph/build/progress'
-    ),
+    request<BuildProgress>('/api/v1/graph/build/progress'),
 
   graphRAGSearch: (payload: { query: string; mode?: string; n_results?: number }) =>
     request<GraphRAGSearchResult>('/api/v1/graph/search', {

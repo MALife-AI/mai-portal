@@ -14,9 +14,7 @@ const DocumentManager = lazy(() => import('./pages/DocumentManager'))
 const KnowledgeSearch = lazy(() => import('./pages/KnowledgeSearch'))
 const AccountSettings = lazy(() => import('./pages/AccountSettings'))
 
-// 레거시 (리다이렉트용)
-const VaultExplorer = lazy(() => import('./pages/VaultExplorer'))
-const Ingestion = lazy(() => import('./pages/Ingestion'))
+// 레거시 (리다이렉트용 — Search는 KnowledgeSearch 통합 모드에서 재사용)
 const Search = lazy(() => import('./pages/Search'))
 const KnowledgeGraph = lazy(() => import('./pages/KnowledgeGraph'))
 

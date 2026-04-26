@@ -22,7 +22,7 @@ export interface AgentMessage {
   execution_log?: import('@/api/client').ExecutionStep[]
   reasoning?: string
   thread_id?: string
-  source_nodes?: Array<{ id: string; name: string; type: string; description?: string; source_titles: string[]; page_start?: number; page_end?: number }>
+  source_nodes?: import('@/api/client').SourceNode[]
   clarification?: import('@/api/client').ClarificationData
 }
 
