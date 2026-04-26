@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Frontend: staged 파일에 ESLint + TypeScript 전체 typecheck 실행
+# Frontend 변경사항이 있을 때만 동작
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^frontend/src/.+\.(ts|tsx)$'; then
+  echo "pre-commit: frontend 변경 감지 — lint-staged + typecheck 실행"
+  cd frontend || exit 1
+
+  npx lint-staged || {
+    echo "✖ lint-staged 실패 — 커밋 중단"
+    exit 1
+  }
+
+  npm run typecheck --silent || {
+    echo "✖ typecheck 실패 — 커밋 중단"
+    exit 1
+  }
+fi
