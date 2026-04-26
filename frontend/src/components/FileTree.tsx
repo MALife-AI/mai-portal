@@ -199,14 +199,15 @@ export function FileTree({
           </button>
         )}
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {(selectMode || isOpen) && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
               style={{ overflow: 'hidden' }}
+              role="group"
             >
               {children
                 .sort((a, b) => {
@@ -224,7 +225,11 @@ export function FileTree({
   const rootChildren = Object.values(tree.children)
 
   return (
-    <div className={cn('select-none', className)}>
+    <div
+      className={cn('select-none', className)}
+      role="tree"
+      aria-label="파일 트리"
+    >
       {rootChildren.length === 0 ? (
         <div className="px-3 py-6 text-center text-surface-600 text-sm">
           파일이 없습니다

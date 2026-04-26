@@ -25,6 +25,7 @@ import {
   type GraphEntity,
   type GraphCommunity,
   type GraphRAGSearchResult,
+  type BuildProgress,
 } from '@/api/client'
 import { useStore, useToast } from '@/store/useStore'
 import { cn } from '@/lib/utils'
@@ -260,17 +261,29 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
           엔티티 상세
         </span>
         <button
+          type="button"
           onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200 transition-colors"
+          className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200"
+          style={{
+            width: '28px',
+            height: '28px',
+            transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+          }}
+          aria-label="엔티티 상세 닫기"
         >
-          <X size={13} />
+          <X size={13} aria-hidden="true" />
         </button>
       </div>
 
       {isLoading ? (
-        <div className="flex-1 p-4 space-y-2">
+        <div
+          className="flex-1 p-4 space-y-2"
+          role="status"
+          aria-busy="true"
+          aria-label="엔티티 상세 불러오는 중"
+        >
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="skeleton h-8 rounded" />
+            <div key={i} className="skeleton h-8 rounded" aria-hidden="true" />
           ))}
         </div>
       ) : entity ? (
@@ -311,18 +324,25 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
               <p className="text-2xs font-mono text-surface-600 uppercase tracking-widest mb-2">
                 소스 문서
               </p>
-              <div className="space-y-1">
+              <ul className="space-y-1">
                 {entity.source_paths.map((path) => (
-                  <button
-                    key={path}
-                    onClick={() => navigate(`/docs?path=${encodeURIComponent(path)}`)}
-                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gold-500 hover:bg-surface-200 transition-colors"
-                  >
-                    <FileText size={11} className="shrink-0" />
-                    <span className="truncate font-mono">{path.split('/').pop() || path}</span>
-                  </button>
+                  <li key={path}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/docs?path=${encodeURIComponent(path)}`)}
+                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gold-500 hover:bg-surface-200"
+                      style={{
+                        minHeight: '30px',
+                        transition: 'background-color 200ms var(--ease-out)',
+                      }}
+                      aria-label={`${path} 문서 열기`}
+                    >
+                      <FileText size={11} className="shrink-0" aria-hidden="true" />
+                      <span className="truncate font-mono">{path.split('/').pop() || path}</span>
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
 
@@ -332,21 +352,24 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
               <p className="text-2xs font-mono text-surface-600 uppercase tracking-widest mb-2">
                 연관 엔티티
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {(data?.neighbors ?? []).slice(0, 10).map((n) => (
-                  <span
-                    key={n.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
-                    style={{
-                      background: `${entityColor(n.entity_type)}18`,
-                      color: entityColor(n.entity_type),
-                      border: `1px solid ${entityColor(n.entity_type)}40`,
-                    }}
-                  >
-                    {n.name}
-                  </span>
-                ))}
-              </div>
+              <ul className="flex flex-wrap gap-1.5" aria-label="연관 엔티티">
+                {(data?.neighbors ?? []).slice(0, 10).map((n) => {
+                  const c = entityColor(n.entity_type)
+                  return (
+                    <li
+                      key={n.id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                      style={{
+                        background: `color-mix(in srgb, ${c} 10%, transparent)`,
+                        color: c,
+                        border: `1px solid color-mix(in srgb, ${c} 25%, transparent)`,
+                      }}
+                    >
+                      {n.name}
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
 
@@ -380,15 +403,17 @@ function DetailPanel({ entityId, onClose, onSubgraph }: DetailPanelProps) {
 
           {/* Subgraph button */}
           <button
+            type="button"
             onClick={() => onSubgraph(entity.id)}
             className="btn-secondary w-full flex items-center justify-center gap-2 mt-2"
+            aria-label={`${entity.name} 서브그래프 보기`}
           >
-            <ZoomIn size={13} />
+            <ZoomIn size={13} aria-hidden="true" />
             서브그래프 보기
           </button>
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center p-4">
+        <div className="flex-1 flex items-center justify-center p-4" role="status">
           <p className="text-sm text-surface-600">엔티티를 불러올 수 없습니다.</p>
         </div>
       )}
@@ -425,19 +450,28 @@ function RagPanel({ onSendToAgent }: RagPanelProps) {
   return (
     <div className="space-y-4">
       {/* Search row */}
-      <div className="flex items-center gap-2">
+      <form
+        className="flex items-center gap-2"
+        role="search"
+        onSubmit={(e) => { e.preventDefault(); void handleSearch() }}
+      >
+        <label htmlFor="rag-query" className="sr-only">GraphRAG 쿼리</label>
         <input
-          type="text"
+          id="rag-query"
+          type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void handleSearch()}
           placeholder="GraphRAG 쿼리 입력..."
           className="input-field flex-1"
+          autoComplete="off"
         />
+        <label htmlFor="rag-mode" className="sr-only">검색 모드</label>
         <select
+          id="rag-mode"
           value={mode}
           onChange={(e) => setMode(e.target.value)}
           className="input-field w-32"
+          aria-label="검색 모드"
         >
           {RAG_MODES.map((m) => (
             <option key={m.value} value={m.value}>
@@ -446,18 +480,19 @@ function RagPanel({ onSendToAgent }: RagPanelProps) {
           ))}
         </select>
         <button
-          onClick={() => void handleSearch()}
+          type="submit"
           disabled={isSearching || !query.trim()}
           className="btn-primary flex items-center gap-1.5 whitespace-nowrap"
+          aria-busy={isSearching}
         >
           {isSearching ? (
-            <RefreshCw size={13} className="animate-spin" />
+            <RefreshCw size={13} className="animate-spin" aria-hidden="true" />
           ) : (
-            <Search size={13} />
+            <Search size={13} aria-hidden="true" />
           )}
           검색
         </button>
-      </div>
+      </form>
 
       {result && (
         <div className="space-y-3">
@@ -499,30 +534,35 @@ function RagPanel({ onSendToAgent }: RagPanelProps) {
               <p className="text-2xs font-mono text-surface-600 uppercase tracking-widest mb-2">
                 연관 엔티티
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.related_entities.slice(0, 12).map((e) => (
-                  <span
-                    key={e.id}
-                    className="px-2 py-0.5 rounded text-xs"
-                    style={{
-                      background: `${entityColor(e.entity_type)}18`,
-                      color: entityColor(e.entity_type),
-                      border: `1px solid ${entityColor(e.entity_type)}40`,
-                    }}
-                  >
-                    {e.name}
-                  </span>
-                ))}
-              </div>
+              <ul className="flex flex-wrap gap-1.5" aria-label="연관 엔티티">
+                {result.related_entities.slice(0, 12).map((e) => {
+                  const c = entityColor(e.entity_type)
+                  return (
+                    <li
+                      key={e.id}
+                      className="px-2 py-0.5 rounded text-xs"
+                      style={{
+                        background: `color-mix(in srgb, ${c} 10%, transparent)`,
+                        color: c,
+                        border: `1px solid color-mix(in srgb, ${c} 25%, transparent)`,
+                      }}
+                    >
+                      {e.name}
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
 
           {/* Send to agent */}
           <button
+            type="button"
             onClick={() => onSendToAgent(result.combined_context)}
             className="btn-secondary flex items-center gap-2"
+            aria-label="검색 결과를 에이전트 컨텍스트로 전달"
           >
-            <Network size={13} />
+            <Network size={13} aria-hidden="true" />
             에이전트에 전달
           </button>
         </div>
@@ -546,9 +586,7 @@ export default function KnowledgeGraph() {
   const [graphData, setGraphData] = useState<GraphVisualizationData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isBuilding, setIsBuilding] = useState(false)
-  const [buildProgress, setBuildProgress] = useState<{
-    status: string; total_files: number; processed: number; entities: number; relationships: number; current_file: string
-  } | null>(null)
+  const [buildProgress, setBuildProgress] = useState<BuildProgress | null>(null)
 
   // Search / filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -815,32 +853,45 @@ export default function KnowledgeGraph() {
         style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
       >
         {/* Search */}
-        <div className="flex items-center gap-2 flex-1 min-w-0 max-w-md">
+        <form
+          role="search"
+          onSubmit={(e) => { e.preventDefault(); void handleEntitySearch() }}
+          className="flex items-center gap-2 flex-1 min-w-0 max-w-md"
+        >
+          <label htmlFor="entity-search" className="sr-only">엔티티 검색</label>
           <div className="relative flex-1">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-600 pointer-events-none" />
+            <Search
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-600 pointer-events-none"
+              aria-hidden="true"
+            />
             <input
-              type="text"
+              id="entity-search"
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void handleEntitySearch()}
               placeholder="엔티티 검색..."
               className="input-field pl-8 w-full"
+              autoComplete="off"
             />
           </div>
           <button
-            onClick={() => void handleEntitySearch()}
+            type="submit"
             className="btn-secondary flex items-center gap-1.5 whitespace-nowrap"
           >
-            <Search size={12} />
+            <Search size={12} aria-hidden="true" />
             검색
           </button>
-        </div>
+        </form>
 
         {/* Type filter */}
+        <label htmlFor="type-filter" className="sr-only">타입 필터</label>
         <select
+          id="type-filter"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
           className="input-field w-36"
+          aria-label="엔티티 타입 필터"
         >
           {ENTITY_TYPES.map((t) => (
             <option key={t} value={t}>
@@ -851,27 +902,32 @@ export default function KnowledgeGraph() {
 
         {/* Subgraph mode indicator */}
         {subgraphEntityId && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" role="status">
             <span className="text-xs font-mono text-gold-500">서브그래프 모드</span>
             <button
+              type="button"
               onClick={() => {
                 setSubgraphEntityId(null)
                 setSelectedNodeId(null)
               }}
               className="btn-secondary flex items-center gap-1 text-xs"
+              aria-label="서브그래프 종료 및 전체 보기"
             >
-              <X size={11} />
+              <X size={11} aria-hidden="true" />
               전체 보기
             </button>
           </div>
         )}
 
         {/* 클러스터 기준 */}
+        <label htmlFor="color-by" className="sr-only">색상 기준</label>
         <select
+          id="color-by"
           value={colorBy}
           onChange={(e) => setColorBy(e.target.value as 'type' | 'community')}
           className="input-field text-xs py-1.5 px-2"
           style={{ width: 'auto', minWidth: 0 }}
+          aria-label="노드 색상 기준"
         >
           <option value="type">엔티티 타입별</option>
           <option value="community">커뮤니티별</option>
@@ -879,16 +935,25 @@ export default function KnowledgeGraph() {
 
         {/* 2D/3D 토글 */}
         <button
+          type="button"
           onClick={() => setIs3D((v) => !v)}
           className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono transition-colors',
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono',
             is3D
               ? 'bg-gold-500/15 text-gold-500 border border-gold-500/30'
               : 'btn-secondary',
           )}
-          title={is3D ? '2D로 전환' : '3D로 전환'}
+          style={{
+            minHeight: '30px',
+            transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+          }}
+          aria-pressed={is3D}
+          aria-label={is3D ? '2D로 전환' : '3D로 전환'}
         >
-          {is3D ? <Box size={13} /> : <Square size={13} />}
+          {is3D
+            ? <Box size={13} aria-hidden="true" />
+            : <Square size={13} aria-hidden="true" />
+          }
           {is3D ? '3D' : '2D'}
         </button>
 
@@ -896,90 +961,122 @@ export default function KnowledgeGraph() {
 
         {/* Stats */}
         {stats && (
-          <div className="flex items-center gap-2">
-            <StatBadge label="노드" value={stats.node_count} color="#F37021" />
-            <StatBadge label="엣지" value={stats.edge_count} color="#4A90D9" />
-            <StatBadge label="커뮤니티" value={stats.communities} color="#34C759" />
+          <div className="flex items-center gap-2" role="status" aria-label="그래프 통계">
+            <StatBadge label="노드" value={stats.node_count} color="var(--color-gold)" />
+            <StatBadge label="엣지" value={stats.edge_count} color="var(--color-blue)" />
+            <StatBadge label="커뮤니티" value={stats.communities} color="var(--color-success)" />
           </div>
         )}
 
         {/* Build button (admin only) */}
         {isAdmin && (
           <button
+            type="button"
             onClick={() => void handleBuildGraph()}
             disabled={isBuilding}
             className="btn-primary flex items-center gap-1.5 whitespace-nowrap"
+            aria-busy={isBuilding}
           >
             {isBuilding ? (
-              <RefreshCw size={13} className="animate-spin" />
+              <RefreshCw size={13} className="animate-spin" aria-hidden="true" />
             ) : (
-              <Hammer size={13} />
+              <Hammer size={13} aria-hidden="true" />
             )}
             그래프 빌드
           </button>
         )}
 
         <button
+          type="button"
           onClick={() => void fetchData()}
           disabled={isLoading}
           className="btn-secondary flex items-center gap-1.5"
-          title="새로고침"
+          aria-label="그래프 데이터 새로고침"
         >
-          <RefreshCw size={13} className={cn(isLoading && 'animate-spin')} />
+          <RefreshCw
+            size={13}
+            className={cn(isLoading && 'animate-spin')}
+            aria-hidden="true"
+          />
         </button>
       </div>
 
       {/* Build progress bar */}
-      <AnimatePresence>
-        {isBuilding && buildProgress && buildProgress.status === 'running' && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mx-4 mb-2 p-3 rounded-md text-xs"
-            style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
-          >
-            {buildProgress.retry_round ? (
-              <>
-                <div className="flex items-center justify-between mb-1.5 text-surface-700">
-                  <span>재시도 {buildProgress.retry_round}차: {buildProgress.retry_done ?? 0} / {buildProgress.retry_total ?? 0} 파일</span>
-                  <span className="font-mono">{(buildProgress.retry_total ?? 0) > 0 ? Math.round((buildProgress.retry_done ?? 0) / buildProgress.retry_total * 100) : 0}%</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
-                  <motion.div
-                    className="h-full rounded-full bg-gold-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(buildProgress.retry_total ?? 0) > 0 ? ((buildProgress.retry_done ?? 0) / buildProgress.retry_total * 100) : 0}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
-                  <span>성공 {(buildProgress.retry_done ?? 0) - (buildProgress.retry_failed ?? 0)}개 · 실패 {buildProgress.retry_failed ?? 0}개 · 엔티티 {buildProgress.entities}개</span>
-                  <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-1.5 text-surface-700">
-                  <span>{buildProgress.processed} / {buildProgress.total_files} 파일 처리 중{buildProgress.processed > 0 && buildProgress.entities > buildProgress.processed * 10 ? ' (이어서 빌드)' : ''}</span>
-                  <span className="font-mono">{buildProgress.total_files > 0 ? Math.round(buildProgress.processed / buildProgress.total_files * 100) : 0}%</span>
-                </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
-                  <motion.div
-                    className="h-full rounded-full bg-gold-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${buildProgress.total_files > 0 ? (buildProgress.processed / buildProgress.total_files * 100) : 0}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
-                  <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
-                  <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
-                </div>
-              </>
-            )}
-          </motion.div>
-        )}
+      <AnimatePresence initial={false}>
+        {isBuilding && buildProgress && buildProgress.status === 'running' && (() => {
+          const isRetry = Boolean(buildProgress.retry_round)
+          const total = isRetry ? (buildProgress.retry_total ?? 0) : buildProgress.total_files
+          const done = isRetry ? (buildProgress.retry_done ?? 0) : buildProgress.processed
+          const percent = total > 0 ? Math.round((done / total) * 100) : 0
+          return (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+              className="mx-4 mb-2 p-3 rounded-md text-xs"
+              style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)' }}
+              role="status"
+              aria-live="polite"
+            >
+              {isRetry ? (
+                <>
+                  <div className="flex items-center justify-between mb-1.5 text-surface-700">
+                    <span>재시도 {buildProgress.retry_round}차: {done} / {total} 파일</span>
+                    <span className="font-mono">{percent}%</span>
+                  </div>
+                  <div
+                    className="h-1.5 rounded-full overflow-hidden"
+                    style={{ background: 'var(--color-border)' }}
+                    role="progressbar"
+                    aria-valuenow={percent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`그래프 재시도 ${percent}%`}
+                  >
+                    <motion.div
+                      className="h-full rounded-full bg-gold-500"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${percent}%` }}
+                      transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
+                    <span>성공 {(buildProgress.retry_done ?? 0) - (buildProgress.retry_failed ?? 0)}개 · 실패 {buildProgress.retry_failed ?? 0}개 · 엔티티 {buildProgress.entities}개</span>
+                    <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-1.5 text-surface-700">
+                    <span>{done} / {total} 파일 처리 중{done > 0 && buildProgress.entities > done * 10 ? ' (이어서 빌드)' : ''}</span>
+                    <span className="font-mono">{percent}%</span>
+                  </div>
+                  <div
+                    className="h-1.5 rounded-full overflow-hidden"
+                    style={{ background: 'var(--color-border)' }}
+                    role="progressbar"
+                    aria-valuenow={percent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`그래프 빌드 ${percent}%`}
+                  >
+                    <motion.div
+                      className="h-full rounded-full bg-gold-500"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${percent}%` }}
+                      transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 text-2xs text-surface-600">
+                    <span>엔티티 {buildProgress.entities}개 · 관계 {buildProgress.relationships}개</span>
+                    <span className="font-mono truncate ml-2 max-w-[200px]">{buildProgress.current_file}</span>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )
+        })()}
       </AnimatePresence>
 
       {/* ── Main split area ──────────────────────────────────────────────────── */}
@@ -991,21 +1088,27 @@ export default function KnowledgeGraph() {
           style={{ flex: selectedNodeId ? '0 0 70%' : '1 1 100%', transition: 'flex 0.2s' }}
         >
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4">
-              <RefreshCw size={28} className="text-gold-500 animate-spin" />
+            <div
+              className="flex flex-col items-center justify-center h-full gap-4"
+              role="status"
+              aria-live="polite"
+            >
+              <RefreshCw size={28} className="text-gold-500 animate-spin" aria-hidden="true" />
               <p className="text-sm text-surface-600">그래프 데이터 로드 중...</p>
             </div>
           ) : forceData.nodes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-4">
-              <Network size={48} className="text-surface-600" />
+              <Network size={48} className="text-surface-600" aria-hidden="true" />
               <p className="text-sm text-surface-700">그래프 데이터가 없습니다.</p>
               {isAdmin && (
                 <button
+                  type="button"
                   onClick={() => void handleBuildGraph()}
                   disabled={isBuilding}
                   className="btn-primary flex items-center gap-2"
+                  aria-busy={isBuilding}
                 >
-                  <Hammer size={14} />
+                  <Hammer size={14} aria-hidden="true" />
                   그래프 빌드 시작
                 </button>
               )}

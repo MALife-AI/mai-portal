@@ -469,8 +469,8 @@ function saveWorkflows(workflows: Workflow[]) {
 
 export default function WorkflowEditor() {
   const [skills, setSkills] = useState<Skill[]>([])
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [workflows, setWorkflowsList] = useState<Workflow[]>([])
   const [currentName, setCurrentName] = useState('새 워크플로우')
   const [currentId, setCurrentId] = useState<string | null>(null)
@@ -584,13 +584,17 @@ export default function WorkflowEditor() {
     // 가드레일 → LLM 자동 연결
     if (!hasGuardrail && newNodes.length === 2) {
       const [guardrailNode, llmNode] = newNodes
-      setEdges(eds => addEdge({
-        source: guardrailNode.id,
-        target: llmNode.id,
-        animated: true,
-        style: { stroke: '#F5A623', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#F5A623' },
-      }, eds))
+      if (guardrailNode && llmNode) {
+        const edge: Edge = {
+          id: `${guardrailNode.id}-${llmNode.id}`,
+          source: guardrailNode.id,
+          target: llmNode.id,
+          animated: true,
+          style: { stroke: 'var(--color-warning)', strokeWidth: 2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--color-warning)' },
+        }
+        setEdges(eds => addEdge(edge, eds))
+      }
     }
   }
 
@@ -686,17 +690,19 @@ export default function WorkflowEditor() {
       adj[node.id] = []
     }
     for (const edge of edges) {
-      adj[edge.source].push(edge.target)
-      inDegree[edge.target] = (inDegree[edge.target] || 0) + 1
+      adj[edge.source]?.push(edge.target)
+      inDegree[edge.target] = (inDegree[edge.target] ?? 0) + 1
     }
     const queue = Object.keys(inDegree).filter(k => inDegree[k] === 0)
     const order: string[] = []
     while (queue.length > 0) {
       const node = queue.shift()!
       order.push(node)
-      for (const next of adj[node] || []) {
-        inDegree[next]--
-        if (inDegree[next] === 0) queue.push(next)
+      for (const next of adj[node] ?? []) {
+        if (inDegree[next] !== undefined) {
+          inDegree[next]--
+          if (inDegree[next] === 0) queue.push(next)
+        }
       }
     }
     return order
@@ -728,13 +734,14 @@ export default function WorkflowEditor() {
   return (
     <div className="h-[calc(100vh-var(--header-height))] flex">
       {/* 좌측: 스킬 팔레트 */}
-      <div
+      <aside
         className="w-64 shrink-0 overflow-y-auto p-3 space-y-2"
         style={{ background: 'var(--color-bg-secondary)', borderRight: '1px solid var(--color-border)' }}
+        aria-label="노드 팔레트"
       >
         {/* 입력/출력 노드 */}
         <div className="mb-3">
-          <p className="text-2xs font-semibold text-surface-600 uppercase mb-1.5">입력 노드</p>
+          <h3 className="text-2xs font-semibold text-surface-600 uppercase mb-1.5">입력 노드</h3>
           <div className="grid grid-cols-2 gap-1">
             {[
               { type: 'text', label: '텍스트', icon: '📝' },
@@ -746,72 +753,127 @@ export default function WorkflowEditor() {
             ].map(inp => (
               <button
                 key={inp.type}
+                type="button"
                 onClick={() => addInputNode(inp.type)}
-                className="flex items-center gap-1.5 p-1.5 rounded text-2xs hover:bg-surface-200 transition-colors"
-                style={{ border: '1px solid var(--color-border)' }}
+                className="flex items-center gap-1.5 p-1.5 rounded text-2xs hover:bg-surface-200"
+                style={{
+                  border: '1px solid var(--color-border)',
+                  minHeight: '30px',
+                  transition: 'background-color 200ms var(--ease-out)',
+                }}
+                aria-label={`${inp.label} 입력 노드 추가`}
               >
-                <span>{inp.icon}</span>
+                <span aria-hidden="true">{inp.icon}</span>
                 <span className="text-surface-800">{inp.label}</span>
               </button>
             ))}
           </div>
           <button
+            type="button"
             onClick={addLLMNode}
-            className="w-full mt-1.5 flex items-center justify-center gap-1.5 p-2 rounded text-xs font-semibold text-gold-500 hover:bg-surface-200 transition-colors"
-            style={{ border: '1px solid var(--color-border)' }}
+            className="w-full mt-1.5 flex items-center justify-center gap-1.5 p-2 rounded text-xs font-semibold text-gold-500 hover:bg-surface-200"
+            style={{
+              border: '1px solid var(--color-border)',
+              minHeight: '34px',
+              transition: 'background-color 200ms var(--ease-out)',
+            }}
+            aria-label="LLM 응답 + 가드레일 노드 추가"
           >
-            <Cpu size={12} /> LLM 응답 + 가드레일
+            <Cpu size={12} aria-hidden="true" /> LLM 응답 + 가드레일
           </button>
         </div>
 
-        <div className="flex items-center justify-between mb-2" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8 }}>
-          <p className="text-xs font-semibold text-surface-800">스킬</p>
-          <Wrench size={13} className="text-gold-500" />
+        <div
+          className="flex items-center justify-between mb-2"
+          style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8 }}
+        >
+          <h3 className="text-xs font-semibold text-surface-800">스킬</h3>
+          <Wrench size={13} className="text-gold-500" aria-hidden="true" />
         </div>
 
-        {skills.map(skill => {
-          const catColor = CATEGORY_COLORS[skill.category] || CATEGORY_COLORS.custom
-          return (
-            <div
-              key={skill.skill_name}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('application/malife-skill', skill.skill_name)
-                e.dataTransfer.effectAllowed = 'move'
-              }}
-              onClick={() => addSkillNode(skill)}
-              className="w-full text-left p-2.5 rounded-md hover:bg-surface-200 transition-colors group cursor-grab active:cursor-grabbing"
-              style={{ border: '1px solid var(--color-border)' }}
-            >
-              <div className="flex items-center gap-2">
-                <GripVertical size={12} className="text-surface-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: catColor }} />
-                <span className="text-sm font-semibold text-surface-900 truncate">{skill.display_name || skill.skill_name}</span>
-              </div>
-              <p className="text-xs text-surface-600 line-clamp-2 mt-1 ml-9">{skill.description}</p>
-            </div>
-          )
-        })}
+        <ul className="space-y-2" aria-label="사용 가능한 스킬">
+          {skills.map(skill => {
+            const catColor = CATEGORY_COLORS[skill.category] || CATEGORY_COLORS.custom
+            const skillLabel = skill.display_name || skill.skill_name
+            return (
+              <li key={skill.skill_name}>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/malife-skill', skill.skill_name)
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onClick={() => addSkillNode(skill)}
+                  className="w-full text-left p-2.5 rounded-md hover:bg-surface-200 group cursor-grab active:cursor-grabbing"
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    transition: 'background-color 200ms var(--ease-out)',
+                  }}
+                  aria-label={`${skillLabel} 스킬 노드 추가`}
+                >
+                  <div className="flex items-center gap-2">
+                    <GripVertical
+                      size={12}
+                      className="text-surface-500 opacity-0 group-hover:opacity-100 shrink-0"
+                      style={{ transition: 'opacity 200ms var(--ease-out)' }}
+                      aria-hidden="true"
+                    />
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ background: catColor }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-sm font-semibold text-surface-900 truncate">{skillLabel}</span>
+                  </div>
+                  <p className="text-xs text-surface-600 line-clamp-2 mt-1 ml-9">{skill.description}</p>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
 
         {/* 워크플로우 목록 */}
-        <div className="pt-3 mt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <p className="text-xs font-semibold text-surface-800 mb-2">저장된 워크플로우</p>
+        <section
+          className="pt-3 mt-3"
+          style={{ borderTop: '1px solid var(--color-border)' }}
+          aria-labelledby="saved-workflows-heading"
+        >
+          <h3 id="saved-workflows-heading" className="text-xs font-semibold text-surface-800 mb-2">
+            저장된 워크플로우
+          </h3>
           {workflows.length === 0 ? (
             <p className="text-2xs text-surface-600">저장된 워크플로우가 없습니다</p>
           ) : (
-            workflows.map(wf => (
-              <div key={wf.id} className="flex items-center justify-between py-1.5 group">
-                <button onClick={() => loadWorkflow(wf)} className="text-xs text-surface-700 hover:text-gold-500 truncate flex-1 text-left">
-                  {wf.name}
-                </button>
-                <button onClick={() => deleteWorkflow(wf.id)} className="opacity-0 group-hover:opacity-100 text-surface-600 hover:text-status-error">
-                  <Trash2 size={11} />
-                </button>
-              </div>
-            ))
+            <ul>
+              {workflows.map(wf => (
+                <li key={wf.id} className="flex items-center justify-between py-1.5 group">
+                  <button
+                    type="button"
+                    onClick={() => loadWorkflow(wf)}
+                    className="text-xs text-surface-700 hover:text-gold-500 truncate flex-1 text-left"
+                    style={{ transition: 'color 200ms var(--ease-out)' }}
+                    aria-label={`${wf.name} 워크플로우 로드`}
+                  >
+                    {wf.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteWorkflow(wf.id)}
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-surface-600 hover:text-status-error"
+                    style={{
+                      transition: 'opacity 200ms var(--ease-out), color 200ms var(--ease-out)',
+                    }}
+                    aria-label={`${wf.name} 워크플로우 삭제`}
+                  >
+                    <Trash2 size={11} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </div>
+        </section>
+      </aside>
 
       {/* 중앙: 캔버스 */}
       <div className="flex-1 relative">
@@ -819,24 +881,54 @@ export default function WorkflowEditor() {
         <div
           className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-4 py-2"
           style={{ background: 'var(--color-bg-secondary)', borderBottom: '1px solid var(--color-border)' }}
+          role="toolbar"
+          aria-label="워크플로우 작업"
         >
-          <Zap size={14} className="text-gold-500" />
+          <Zap size={14} className="text-gold-500" aria-hidden="true" />
+          <label htmlFor="workflow-name" className="sr-only">워크플로우 이름</label>
           <input
+            id="workflow-name"
             value={currentName}
             onChange={e => setCurrentName(e.target.value)}
             className="input-field text-xs font-semibold w-48"
             placeholder="워크플로우 이름"
+            autoComplete="off"
           />
           <div className="flex-1" />
-          <span className="text-2xs text-surface-600 whitespace-nowrap">{nodes.length}개 노드 · {edges.length}개 연결</span>
-          <button onClick={clearCanvas} className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"><Trash2 size={12} /> 초기화</button>
-          <button onClick={saveWorkflow} className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"><Save size={12} /> 저장</button>
+          <span
+            className="text-2xs text-surface-600 whitespace-nowrap"
+            aria-live="polite"
+          >
+            {nodes.length}개 노드 · {edges.length}개 연결
+          </span>
           <button
+            type="button"
+            onClick={clearCanvas}
+            className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"
+            aria-label="캔버스 초기화"
+          >
+            <Trash2 size={12} aria-hidden="true" /> 초기화
+          </button>
+          <button
+            type="button"
+            onClick={saveWorkflow}
+            className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1"
+            aria-label="워크플로우 저장"
+          >
+            <Save size={12} aria-hidden="true" /> 저장
+          </button>
+          <button
+            type="button"
             onClick={runWorkflow}
             disabled={running || nodes.length === 0}
             className="btn-primary text-xs whitespace-nowrap flex items-center gap-1"
+            aria-busy={running}
+            aria-label={running ? '워크플로우 실행 중' : '워크플로우 실행'}
           >
-            {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {running
+              ? <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              : <Play size={12} aria-hidden="true" />
+            }
             {running ? '실행 중...' : '실행'}
           </button>
         </div>
@@ -858,14 +950,14 @@ export default function WorkflowEditor() {
             className="bg-surface-DEFAULT"
             defaultEdgeOptions={{
               animated: true,
-              style: { stroke: '#F37021', strokeWidth: 2 },
-              markerEnd: { type: MarkerType.ArrowClosed, color: '#F37021' },
+              style: { stroke: 'var(--color-gold)', strokeWidth: 2 },
+              markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--color-gold)' },
             }}
           >
             <Background color="var(--color-border)" gap={20} />
             <Controls />
             <MiniMap
-              nodeColor={(n) => CATEGORY_COLORS[(n.data?.category as string)] || '#6b829e'}
+              nodeColor={(n) => CATEGORY_COLORS[(n.data?.category as string)] || 'var(--color-text-muted)'}
             />
           </ReactFlow>
         </div>
@@ -873,27 +965,39 @@ export default function WorkflowEditor() {
 
       {/* 우측: 실행 로그 */}
       {runLog.length > 0 && (
-        <div
+        <aside
           className="w-56 shrink-0 overflow-y-auto p-3"
           style={{ background: 'var(--color-bg-secondary)', borderLeft: '1px solid var(--color-border)' }}
+          aria-label="실행 로그"
+          aria-live="polite"
         >
-          <p className="text-xs font-semibold text-surface-800 mb-3">실행 로그</p>
-          <div className="space-y-2">
+          <h3 className="text-xs font-semibold text-surface-800 mb-3">실행 로그</h3>
+          <ol className="space-y-2">
             {runLog.map((log, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <li key={i} className="flex items-center gap-2">
                 {log.status === 'running' ? (
-                  <Loader2 size={12} className="animate-spin text-gold-500" />
+                  <Loader2
+                    size={12}
+                    className="animate-spin text-gold-500"
+                    aria-label="실행 중"
+                  />
                 ) : (
-                  <div className="w-3 h-3 rounded-full bg-status-success" />
+                  <div
+                    className="w-3 h-3 rounded-full bg-status-success"
+                    aria-label="완료"
+                    role="img"
+                  />
                 )}
                 <div>
                   <p className="text-xs font-mono text-surface-900">{log.skill}</p>
-                  <p className="text-2xs text-surface-600">{log.status === 'running' ? '실행 중...' : log.result}</p>
+                  <p className="text-2xs text-surface-600">
+                    {log.status === 'running' ? '실행 중...' : log.result}
+                  </p>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ol>
+        </aside>
       )}
     </div>
   )

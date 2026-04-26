@@ -19,12 +19,14 @@ import { Modal } from '@/components/Modal'
 import { SearchBar } from '@/components/SearchBar'
 import { formatRelativeTime, cn } from '@/lib/utils'
 
+const EASE: [number, number, number, number] = [0.23, 1, 0.32, 1]
+
 const stagger = {
-  container: { transition: { staggerChildren: 0.07 } },
+  container: { transition: { staggerChildren: 0.06 } },
   item: {
-    initial: { opacity: 0, y: 16 },
+    initial: { opacity: 0, y: 12 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.3 },
+    transition: { duration: 0.22, ease: EASE },
   },
 }
 
@@ -42,7 +44,12 @@ function MetricCard({ label, value, icon, sublabel, accent }: MetricCardProps) {
       <div className="flex items-start justify-between mb-3">
         <div
           className="w-9 h-9 rounded-md flex items-center justify-center"
-          style={{ background: accent ? `${accent}20` : 'var(--color-bg-elevated)' }}
+          style={{
+            background: accent
+              ? `color-mix(in srgb, ${accent} 12%, transparent)`
+              : 'var(--color-bg-elevated)',
+          }}
+          aria-hidden="true"
         >
           {icon}
         </div>
@@ -144,20 +151,33 @@ export default function Dashboard() {
           autoNavigate
         />
         <button
+          type="button"
           onClick={handleRefresh}
           disabled={isRefreshing}
           className="btn-secondary flex items-center gap-1.5"
+          aria-label="대시보드 새로고침"
+          aria-busy={isRefreshing}
         >
-          <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
+          <RefreshCw
+            size={13}
+            className={cn(isRefreshing && 'animate-spin')}
+            aria-hidden="true"
+          />
           새로고침
         </button>
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <div
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4"
+          role="status"
+          aria-label="대시보드 불러오는 중"
+          aria-busy="true"
+        >
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="skeleton h-28 rounded-md" />
+            <div key={i} className="skeleton h-28 rounded-md" aria-hidden="true" />
           ))}
+          <span className="sr-only">지표를 불러오는 중입니다</span>
         </div>
       ) : (
         <>
@@ -173,8 +193,8 @@ export default function Dashboard() {
                 label="시스템 상태"
                 value={isHealthy ? '정상' : '오류'}
                 sublabel={health ? `v${health.version ?? '—'}` : '연결 실패'}
-                icon={<Activity size={18} className={isHealthy ? 'text-status-success' : 'text-status-error'} />}
-                accent={isHealthy ? '#3fb950' : '#f85149'}
+                icon={<Activity size={18} className={isHealthy ? 'text-status-success' : 'text-status-error'} aria-hidden="true" />}
+                accent={isHealthy ? 'var(--color-success)' : 'var(--color-error)'}
               />
             </motion.div>
             <motion.div {...stagger.item}>
@@ -182,8 +202,8 @@ export default function Dashboard() {
                 label="에이전트 세션"
                 value={totalThreads}
                 sublabel="총 대화 스레드"
-                icon={<Bot size={18} className="text-slate-data" />}
-                accent="#4a9eff"
+                icon={<Bot size={18} className="text-slate-data" aria-hidden="true" />}
+                accent="var(--color-blue)"
               />
             </motion.div>
             <motion.div {...stagger.item}>
@@ -191,8 +211,8 @@ export default function Dashboard() {
                 label="감사 로그"
                 value={auditLog.length}
                 sublabel="최근 기록 수"
-                icon={<Layers size={18} className="text-gold-500" />}
-                accent="#F37021"
+                icon={<Layers size={18} className="text-gold-500" aria-hidden="true" />}
+                accent="var(--color-gold)"
               />
             </motion.div>
             <motion.div {...stagger.item}>
@@ -200,8 +220,11 @@ export default function Dashboard() {
                 label="킬 스위치"
                 value={killSwitchActive ? '활성' : '해제'}
                 sublabel={killSwitch?.reason ?? '대기 중'}
-                icon={killSwitchActive ? <ShieldOff size={18} className="text-status-error" /> : <Shield size={18} className="text-status-success" />}
-                accent={killSwitchActive ? '#f85149' : '#3fb950'}
+                icon={killSwitchActive
+                  ? <ShieldOff size={18} className="text-status-error" aria-hidden="true" />
+                  : <Shield size={18} className="text-status-success" aria-hidden="true" />
+                }
+                accent={killSwitchActive ? 'var(--color-error)' : 'var(--color-success)'}
               />
             </motion.div>
           </motion.div>
@@ -209,14 +232,20 @@ export default function Dashboard() {
           {/* Status panel + Kill switch */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             {/* System Status */}
-            <motion.div
+            <motion.section
               className="col-span-2 panel p-5"
-              initial={{ opacity: 0, x: -16 }}
+              initial={{ opacity: 0, x: -12 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
+              transition={{ duration: 0.24, ease: EASE, delay: 0.08 }}
+              aria-labelledby="sysstatus-heading"
             >
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-display font-semibold text-surface-900">시스템 상태</h2>
+                <h2
+                  id="sysstatus-heading"
+                  className="font-display font-semibold text-surface-900"
+                >
+                  시스템 상태
+                </h2>
                 <StatusBadge status={isHealthy ? 'healthy' : 'error'} />
               </div>
 
@@ -253,36 +282,43 @@ export default function Dashboard() {
                   <p className="text-2xs font-mono text-surface-600 uppercase tracking-widest mb-2">
                     추가 정보
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <dl className="grid grid-cols-2 gap-2">
                     {Object.entries(health)
                       .filter(([k]) => k !== 'status')
                       .slice(0, 4)
                       .map(([key, val]) => (
                         <div key={key} className="flex gap-2 text-xs">
-                          <span className="font-mono text-surface-600">{key}:</span>
-                          <span className="text-surface-800 truncate">{String(val)}</span>
+                          <dt className="font-mono text-surface-600">{key}:</dt>
+                          <dd className="text-surface-800 truncate">{String(val)}</dd>
                         </div>
                       ))}
-                  </div>
+                  </dl>
                 </div>
               )}
-            </motion.div>
+            </motion.section>
 
             {/* Kill Switch Panel */}
-            <motion.div
+            <motion.section
               className={cn('panel p-5 flex flex-col', killSwitchActive && 'kill-switch-active')}
-              style={killSwitchActive ? { borderColor: 'rgba(248, 81, 73, 0.5)' } : {}}
-              initial={{ opacity: 0, x: 16 }}
+              style={killSwitchActive ? { borderColor: 'color-mix(in srgb, var(--color-error) 50%, transparent)' } : {}}
+              initial={{ opacity: 0, x: 12 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.25 }}
+              transition={{ duration: 0.24, ease: EASE, delay: 0.12 }}
+              aria-labelledby="killswitch-heading"
+              aria-live="polite"
             >
               <div className="flex items-center gap-2 mb-4">
                 {killSwitchActive ? (
-                  <AlertOctagon size={16} className="text-status-error" />
+                  <AlertOctagon size={16} className="text-status-error" aria-hidden="true" />
                 ) : (
-                  <Shield size={16} className="text-status-success" />
+                  <Shield size={16} className="text-status-success" aria-hidden="true" />
                 )}
-                <h2 className="font-display font-semibold text-surface-900">킬 스위치</h2>
+                <h2
+                  id="killswitch-heading"
+                  className="font-display font-semibold text-surface-900"
+                >
+                  킬 스위치
+                </h2>
               </div>
 
               <div className="flex-1 space-y-3">
@@ -316,9 +352,10 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <div className="gold-divider my-4" />
+              <div className="gold-divider my-4" role="presentation" />
 
               <button
+                type="button"
                 className={cn(
                   killSwitchActive ? 'btn-secondary' : 'btn-danger',
                   'w-full flex items-center justify-center gap-2',
@@ -330,31 +367,40 @@ export default function Dashboard() {
               >
                 {killSwitchActive ? (
                   <>
-                    <Shield size={14} />
+                    <Shield size={14} aria-hidden="true" />
                     킬 스위치 해제
                   </>
                 ) : (
                   <>
-                    <ShieldOff size={14} />
+                    <ShieldOff size={14} aria-hidden="true" />
                     킬 스위치 활성화
                   </>
                 )}
               </button>
-            </motion.div>
+            </motion.section>
           </div>
 
           {/* Recent Audit Log */}
-          <motion.div
+          <motion.section
             className="panel"
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
+            transition={{ duration: 0.24, ease: EASE, delay: 0.16 }}
+            aria-labelledby="audit-heading"
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-surface-300">
-              <h2 className="font-display font-semibold text-surface-900">최근 감사 로그</h2>
+              <h2
+                id="audit-heading"
+                className="font-display font-semibold text-surface-900"
+              >
+                최근 감사 로그
+              </h2>
               <button
-                className="text-xs text-gold-500 hover:text-gold-400 transition-colors"
+                type="button"
+                className="text-xs text-gold-500 hover:text-gold-hover"
+                style={{ transition: 'color 200ms var(--ease-out)' }}
                 onClick={() => navigate('/admin')}
+                aria-label="전체 감사 로그 보기"
               >
                 전체 보기 →
               </button>
@@ -362,19 +408,20 @@ export default function Dashboard() {
 
             {auditLog.length === 0 ? (
               <div className="px-5 py-10 text-center">
-                <FileText size={28} className="text-surface-600 mx-auto mb-2" />
+                <FileText size={28} className="text-surface-600 mx-auto mb-2" aria-hidden="true" />
                 <p className="text-sm text-surface-700">감사 로그가 없습니다</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table">
+                  <caption className="sr-only">최근 감사 로그 10건</caption>
                   <thead>
                     <tr>
-                      <th>시각</th>
-                      <th>사용자</th>
-                      <th>스킬 / 액션</th>
-                      <th>쿼리</th>
-                      <th>상태</th>
+                      <th scope="col">시각</th>
+                      <th scope="col">사용자</th>
+                      <th scope="col">스킬 / 액션</th>
+                      <th scope="col">쿼리</th>
+                      <th scope="col">상태</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -383,7 +430,7 @@ export default function Dashboard() {
                         key={entry.id ?? i}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        transition={{ delay: i * 0.04 }}
+                        transition={{ duration: 0.18, ease: EASE, delay: i * 0.03 }}
                       >
                         <td className="whitespace-nowrap">{formatRelativeTime(entry.timestamp)}</td>
                         <td>
@@ -402,24 +449,27 @@ export default function Dashboard() {
                 </table>
               </div>
             )}
-          </motion.div>
+          </motion.section>
 
           {/* Quick links */}
-          <motion.div
+          <motion.nav
             className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
+            transition={{ duration: 0.22, ease: EASE, delay: 0.24 }}
+            aria-label="빠른 작업"
           >
             {[
-              { label: '새 에이전트 쿼리', desc: '에이전트 콘솔 시작', to: '/agent', icon: <Bot size={16} className="text-slate-data" /> },
-              { label: '문서 검색', desc: '시맨틱 벡터 검색', to: '/search', icon: <Search size={16} className="text-gold-500" /> },
-              { label: '문서 업로드', desc: '신규 파일 인제스트', to: '/ingest', icon: <FileText size={16} className="text-status-success" /> },
+              { label: '새 에이전트 쿼리', desc: '에이전트 콘솔 시작', to: '/agent', icon: <Bot size={16} className="text-slate-data" aria-hidden="true" /> },
+              { label: '문서 검색', desc: '시맨틱 벡터 검색', to: '/search', icon: <Search size={16} className="text-gold-500" aria-hidden="true" /> },
+              { label: '문서 업로드', desc: '신규 파일 인제스트', to: '/ingest', icon: <FileText size={16} className="text-status-success" aria-hidden="true" /> },
             ].map((item) => (
               <button
                 key={item.to}
+                type="button"
                 onClick={() => navigate(item.to)}
                 className="card p-4 text-left flex items-center gap-3"
+                aria-label={`${item.label} — ${item.desc}`}
               >
                 <div className="w-9 h-9 rounded-md bg-surface-200 flex items-center justify-center shrink-0">
                   {item.icon}
@@ -430,7 +480,7 @@ export default function Dashboard() {
                 </div>
               </button>
             ))}
-          </motion.div>
+          </motion.nav>
         </>
       )}
 
@@ -454,15 +504,20 @@ export default function Dashboard() {
         </p>
         {killAction === 'activate' && (
           <div>
-            <label className="text-xs text-surface-700 font-semibold block mb-1.5">
+            <label
+              htmlFor="killswitch-reason"
+              className="text-xs text-surface-700 font-semibold block mb-1.5"
+            >
               활성화 사유 (선택)
             </label>
             <input
+              id="killswitch-reason"
               type="text"
               value={killReason}
               onChange={(e) => setKillReason(e.target.value)}
               placeholder="예: 보안 위협 감지"
               className="input-field"
+              autoComplete="off"
             />
           </div>
         )}

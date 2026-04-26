@@ -82,7 +82,10 @@ function NavMenu() {
   }
 
   return (
-    <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+    <nav
+      className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto"
+      aria-label="주 메뉴"
+    >
       <p className="px-2 py-1.5 text-2xs font-mono text-surface-600 uppercase tracking-widest">
         메뉴
       </p>
@@ -91,35 +94,42 @@ function NavMenu() {
           const expanded = expandedGroups.has(entry.label)
           const isChildActive = entry.children.some(c => location.pathname.startsWith(c.to))
           const Icon = entry.icon
+          const groupId = `nav-group-${entry.label.replace(/\s+/g, '-')}`
 
           return (
             <div key={entry.label}>
               <button
+                type="button"
                 onClick={() => toggleGroup(entry.label)}
                 className={cn(
                   'nav-item w-full',
                   isChildActive && 'text-gold-500',
                 )}
+                aria-expanded={expanded}
+                aria-controls={groupId}
               >
                 <Icon
                   size={15}
                   className={cn('shrink-0', isChildActive ? 'text-gold-500' : 'text-surface-600')}
+                  aria-hidden="true"
                 />
                 <span className="flex-1 text-left">{entry.label}</span>
                 <motion.span
                   animate={{ rotate: expanded ? 180 : 0 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+                  aria-hidden="true"
                 >
                   <ChevronDown size={12} className="text-surface-600" />
                 </motion.span>
               </button>
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {expanded && (
                   <motion.div
+                    id={groupId}
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
+                    transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                     className="overflow-hidden"
                   >
                     <div className="ml-4 pl-2 space-y-0.5 py-0.5" style={{ borderLeft: '1px solid var(--color-border)' }}>
@@ -135,10 +145,15 @@ function NavMenu() {
                               <ChildIcon
                                 size={13}
                                 className={cn('shrink-0', isActive ? 'text-gold-500' : 'text-surface-600')}
+                                aria-hidden="true"
                               />
                               <span>{label}</span>
                               {isActive && (
-                                <motion.span layoutId="nav-indicator" className="ml-auto w-1 h-1 rounded-full bg-gold-500" />
+                                <motion.span
+                                  layoutId="nav-indicator"
+                                  className="ml-auto w-1 h-1 rounded-full bg-gold-500"
+                                  aria-hidden="true"
+                                />
                               )}
                             </>
                           )}
@@ -164,11 +179,16 @@ function NavMenu() {
               <>
                 <Icon
                   size={15}
-                  className={cn('shrink-0 transition-colors', isActive ? 'text-gold-500' : 'text-surface-600')}
+                  className={cn('shrink-0', isActive ? 'text-gold-500' : 'text-surface-600')}
+                  aria-hidden="true"
                 />
                 <span>{label}</span>
                 {isActive && (
-                  <motion.span layoutId="nav-indicator" className="ml-auto w-1 h-1 rounded-full bg-gold-500" />
+                  <motion.span
+                    layoutId="nav-indicator"
+                    className="ml-auto w-1 h-1 rounded-full bg-gold-500"
+                    aria-hidden="true"
+                  />
                 )}
               </>
             )}
@@ -196,10 +216,13 @@ function ThemeToggle() {
 
   return (
     <button
+      type="button"
       onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100 transition-colors text-surface-600 hover:text-surface-900"
+      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100 text-surface-600 hover:text-surface-900 active:scale-[0.98]"
+      style={{ transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 120ms var(--ease-out)' }}
+      aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
     >
-      {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+      {theme === 'dark' ? <Sun size={14} aria-hidden="true" /> : <Moon size={14} aria-hidden="true" />}
       <span className="text-xs">{theme === 'dark' ? '라이트 모드' : '다크 모드'}</span>
     </button>
   )
@@ -209,9 +232,21 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { userId, setUserId, killSwitchActive } = useStore()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
+  // 바깥 클릭 및 Esc로 사용자 메뉴 닫기
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUserMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [userMenuOpen])
+
   return (
     <aside
+      id="primary-sidebar"
       className="flex flex-col h-full shrink-0"
+      aria-label="사이드바"
       style={{
         width: 'var(--sidebar-width)',
         background: 'var(--color-bg-secondary)',
@@ -225,7 +260,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       >
         <div
           className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
-          style={{ background: 'linear-gradient(135deg, #F37021, #b34c10)' }}
+          style={{ background: 'linear-gradient(135deg, var(--color-gold), var(--color-gold-dim))' }}
+          aria-hidden="true"
         >
           <span className="font-display font-bold text-white" style={{ fontSize: '0.75rem' }}>
             M:AI
@@ -242,10 +278,13 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         </div>
         {onClose && (
           <button
-            className="p-1.5 rounded-md hover:bg-surface-100 md:hidden"
+            type="button"
+            className="inline-flex items-center justify-center rounded-md hover:bg-surface-100 md:hidden"
+            style={{ width: '40px', height: '40px' }}
             onClick={onClose}
+            aria-label="메뉴 닫기"
           >
-            <X size={16} className="text-surface-600" />
+            <X size={16} className="text-surface-600" aria-hidden="true" />
           </button>
         )}
       </div>
@@ -255,7 +294,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
+          transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
           className="mx-3 mt-3 px-3 py-2 rounded-md kill-switch-active"
+          role="alert"
+          aria-live="assertive"
           style={{
             background: 'rgba(255, 59, 48, 0.12)',
             border: '1px solid rgba(255, 59, 48, 0.4)',
@@ -274,32 +316,39 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         <NavLink
           to="/settings"
           className={({ isActive }) => cn(
-            'w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100 transition-colors',
+            'w-full flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-surface-100',
             isActive ? 'text-gold-500' : 'text-surface-600 hover:text-surface-900',
           )}
+          style={{ transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
         >
-          <Settings size={14} />
+          <Settings size={14} aria-hidden="true" />
           <span className="text-xs">계정 설정</span>
         </NavLink>
         <ThemeToggle />
       </div>
 
       {/* Divider */}
-      <div className="gold-divider mx-3" />
+      <div className="gold-divider mx-3" role="presentation" />
 
       {/* User Selector */}
       <div className="p-2 relative">
         <button
+          type="button"
           className={cn(
             'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-md',
-            'hover:bg-surface-100 transition-colors',
+            'hover:bg-surface-100',
             userMenuOpen && 'bg-surface-100',
           )}
+          style={{ transition: 'background-color 200ms var(--ease-out)' }}
           onClick={() => setUserMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          aria-label={`현재 사용자: ${userId}. 사용자 전환`}
         >
           <div
             className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
             style={{ background: 'rgba(243, 112, 33, 0.2)', border: '1px solid rgba(243, 112, 33, 0.3)' }}
+            aria-hidden="true"
           >
             <User size={13} className="text-gold-500" />
           </div>
@@ -310,50 +359,62 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           <ChevronDown
             size={13}
             className={cn(
-              'text-surface-600 transition-transform',
+              'text-surface-600',
               userMenuOpen && 'rotate-180',
             )}
+            style={{ transition: 'transform 200ms var(--ease-out)' }}
+            aria-hidden="true"
           />
         </button>
 
         {/* User dropdown */}
-        {userMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="absolute bottom-full left-2 right-2 mb-1 rounded-md overflow-hidden"
-            style={{
-              background: 'var(--color-bg-elevated)',
-              border: '1px solid var(--color-border)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-            }}
-          >
-            <p className="px-3 py-2 text-2xs font-mono text-surface-600 uppercase tracking-widest border-b border-surface-300">
-              사용자 전환
-            </p>
-            {DEMO_USERS.map((user) => (
-              <button
-                key={user}
-                className={cn(
-                  'w-full text-left px-3 py-2 text-sm transition-colors',
-                  userId === user
-                    ? 'text-gold-500 bg-surface-200'
-                    : 'text-surface-800 hover:bg-surface-100',
-                )}
-                onClick={() => {
-                  setUserId(user)
-                  setUserMenuOpen(false)
-                }}
-              >
-                <span className="font-mono">{user}</span>
-                {userId === user && (
-                  <span className="ml-2 text-2xs text-gold-600">(현재)</span>
-                )}
-              </button>
-            ))}
-          </motion.div>
-        )}
+        <AnimatePresence>
+          {userMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+              className="absolute bottom-full left-2 right-2 mb-1 rounded-md overflow-hidden"
+              role="menu"
+              aria-label="사용자 전환"
+              style={{
+                background: 'var(--color-bg-elevated)',
+                border: '1px solid var(--color-border)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                transformOrigin: 'bottom center',
+              }}
+            >
+              <p className="px-3 py-2 text-2xs font-mono text-surface-600 uppercase tracking-widest border-b border-surface-300">
+                사용자 전환
+              </p>
+              {DEMO_USERS.map((user) => (
+                <button
+                  key={user}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={userId === user}
+                  className={cn(
+                    'w-full text-left px-3 py-2 text-sm',
+                    userId === user
+                      ? 'text-gold-500 bg-surface-200'
+                      : 'text-surface-800 hover:bg-surface-100',
+                  )}
+                  style={{ transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)' }}
+                  onClick={() => {
+                    setUserId(user)
+                    setUserMenuOpen(false)
+                  }}
+                >
+                  <span className="font-mono">{user}</span>
+                  {userId === user && (
+                    <span className="ml-2 text-2xs text-gold-600">(현재)</span>
+                  )}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </aside>
   )

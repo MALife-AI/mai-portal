@@ -2,23 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Loader2, Maximize2, Minimize2 } from 'lucide-react'
 import ForceGraph2D, { type NodeObject, type LinkObject } from 'react-force-graph-2d'
-import { graphApi, type GraphVisualizationData } from '@/api/client'
+import { graphApi, type GraphVisualizationData, type SourceNode } from '@/api/client'
 
 const CITE_COLORS = [
   '#F37021', '#4A90D9', '#34C759', '#AF52DE', '#FF3B30',
   '#5AC8FA', '#FFCC00', '#FF2D55', '#64D2FF', '#30D158',
 ]
-
-interface SourceNode {
-  id: string
-  name: string
-  type: string
-  description?: string
-  match_reason?: string
-  source_titles: string[]
-  page_start?: number | null
-  page_end?: number | null
-}
 
 interface Props {
   sourceNodes: SourceNode[]
@@ -48,6 +37,23 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
   const [selectedNode, setSelectedNode] = useState<GNode | null>(null)
   const [expanded, setExpanded] = useState(false)
   const graphRef = useRef<any>(null)
+
+  // Esc 키로 닫기 + body scroll lock
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedNode) setSelectedNode(null)
+        else onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose, selectedNode])
 
   // Fetch subgraphs for all source nodes and merge
   useEffect(() => {
@@ -244,16 +250,22 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
+        transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
         className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+        style={{ background: 'var(--color-overlay)', backdropFilter: 'blur(4px)' }}
         onClick={onClose}
+        role="presentation"
       >
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
+          initial={{ scale: 0.96, opacity: 0, y: 8 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.96, opacity: 0, y: 8 }}
+          transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
           onClick={(e) => e.stopPropagation()}
           className="rounded-xl overflow-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="graph-overlay-title"
           style={{
             width: width + 32,
             background: 'var(--color-bg-elevated)',
@@ -267,42 +279,69 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
             style={{ borderBottom: '1px solid var(--color-border)' }}
           >
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-surface-900">참조 지식그래프</span>
+              <h2 id="graph-overlay-title" className="text-sm font-semibold text-surface-900">
+                참조 지식그래프
+              </h2>
               <span className="text-2xs font-mono text-surface-600">
                 {graphData.nodes.length} nodes / {graphData.links.length} edges
               </span>
             </div>
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={() => setExpanded(v => !v)}
-                className="w-7 h-7 rounded flex items-center justify-center text-surface-600 hover:text-surface-900 hover:bg-surface-200 transition-colors"
+                className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                }}
+                aria-label={expanded ? '그래프 축소' : '그래프 확대'}
               >
-                {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                {expanded
+                  ? <Minimize2 size={14} aria-hidden="true" />
+                  : <Maximize2 size={14} aria-hidden="true" />
+                }
               </button>
               <button
+                type="button"
                 onClick={onClose}
-                className="w-7 h-7 rounded flex items-center justify-center text-surface-600 hover:text-status-error hover:bg-surface-200 transition-colors"
+                className="inline-flex items-center justify-center rounded text-surface-600 hover:text-status-error hover:bg-surface-200"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                }}
+                aria-label="그래프 닫기"
               >
-                <X size={14} />
+                <X size={14} aria-hidden="true" />
               </button>
             </div>
           </div>
 
           {/* Legend */}
-          <div className="flex flex-wrap gap-2 px-4 py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <ul
+            className="flex flex-wrap gap-2 px-4 py-2"
+            style={{ borderBottom: '1px solid var(--color-border)' }}
+            aria-label="참조 출처 목록"
+          >
             {sourceNodes.map((sn, i) => {
               const color = CITE_COLORS[i % CITE_COLORS.length]
               return (
-                <span
+                <li
                   key={sn.id}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-2xs font-mono"
-                  style={{ background: `${color}22`, color, border: `1px solid ${color}44` }}
+                  style={{
+                    background: `color-mix(in srgb, ${color} 13%, transparent)`,
+                    color,
+                    border: `1px solid color-mix(in srgb, ${color} 27%, transparent)`,
+                  }}
                 >
                   <span className="font-bold">[{i + 1}]</span> {sn.name}
-                </span>
+                </li>
               )
             })}
-          </div>
+          </ul>
 
           {/* Graph */}
           <div style={{ width, height, margin: '0 auto' }}>
@@ -317,7 +356,7 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
             ) : (
               <ForceGraph2D
                 ref={graphRef}
-                graphData={graphData}
+                graphData={graphData as any}
                 width={width}
                 height={height}
                 nodeCanvasObject={paintNode}
@@ -348,16 +387,32 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
             {selectedNode && (
               <div
                 className="absolute bottom-4 left-4 right-4 rounded-lg p-3"
+                role="region"
+                aria-label={`노드 상세: ${selectedNode.name}`}
                 style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: selectedNode.highlightColor || (selectedNode.isReferenced ? '#F37021' : '#6b829e') }} />
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: selectedNode.highlightColor || (selectedNode.isReferenced ? 'var(--color-gold)' : 'var(--color-text-muted)') }}
+                      aria-hidden="true"
+                    />
                     <span className="text-xs font-semibold text-surface-900">{selectedNode.name}</span>
                     <span className="text-2xs font-mono text-surface-600">{selectedNode.type}</span>
                   </div>
-                  <button onClick={() => setSelectedNode(null)} className="text-surface-600 hover:text-surface-900">
-                    <X size={12} />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedNode(null)}
+                    className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900"
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      transition: 'color 200ms var(--ease-out)',
+                    }}
+                    aria-label="노드 상세 닫기"
+                  >
+                    <X size={12} aria-hidden="true" />
                   </button>
                 </div>
                 {/* 문서명 (소스 노드인 경우) */}
@@ -406,16 +461,23 @@ export function GraphOverlay({ sourceNodes, focusIndex, onClose }: Props) {
               const color = CITE_COLORS[idx % CITE_COLORS.length]
               // 위치 정보 구성
               const location = [
-                (sn as any).section_ref || '',
+                sn.section_ref || '',
                 sn.page_start != null ? `p.${sn.page_start}${sn.page_end && sn.page_end !== sn.page_start ? `-${sn.page_end}` : ''}` : '',
-                (sn as any).effective_date ? `시행 ${(sn as any).effective_date}` : '',
+                sn.effective_date ? `시행 ${sn.effective_date}` : '',
               ].filter(Boolean).join(' · ')
 
               return (
                 <div key={sn.id} className="flex items-start gap-2 text-2xs">
                   <span
                     className="inline-flex items-center justify-center rounded font-bold shrink-0 mt-0.5"
-                    style={{ fontSize: '8px', width: '16px', height: '16px', background: `${color}33`, color }}
+                    style={{
+                      fontSize: '8px',
+                      width: '16px',
+                      height: '16px',
+                      background: `color-mix(in srgb, ${color} 20%, transparent)`,
+                      color,
+                    }}
+                    aria-label={`출처 ${idx + 1}`}
                   >
                     {idx + 1}
                   </span>

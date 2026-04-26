@@ -88,6 +88,7 @@ function getFileIconBadge(name: string) {
     <div
       className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
       style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+      aria-hidden="true"
     >
       {FILE_TYPE_LABELS[ext] ?? <File size={14} className="text-surface-600" />}
     </div>
@@ -148,7 +149,10 @@ function UploadJobCard({ job, onCancel }: { job: UploadJob; onCancel?: (id: stri
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
       className="panel p-3"
+      role="listitem"
+      aria-label={`${job.file.name} 업로드 ${job.status}`}
     >
       <div className="flex items-start gap-2.5">
         {getFileIconBadge(job.file.name)}
@@ -163,16 +167,22 @@ function UploadJobCard({ job, onCancel }: { job: UploadJob; onCancel?: (id: stri
               {job.status === 'uploading' && (
                 <>
                   <span className="tag tag-blue flex items-center gap-1">
-                    <Loader2 size={8} className="animate-spin" />
+                    <Loader2 size={8} className="animate-spin" aria-hidden="true" />
                     변환 중
                   </span>
                   {onCancel && (
                     <button
+                      type="button"
                       onClick={() => onCancel(job.id)}
-                      className="w-5 h-5 rounded flex items-center justify-center text-surface-600 hover:text-status-error transition-colors"
-                      title="중지"
+                      className="inline-flex items-center justify-center rounded text-surface-600 hover:text-status-error"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        transition: 'color 200ms var(--ease-out)',
+                      }}
+                      aria-label={`${job.file.name} 업로드 중지`}
                     >
-                      <XCircle size={12} />
+                      <XCircle size={12} aria-hidden="true" />
                     </button>
                   )}
                 </>
@@ -706,21 +716,26 @@ tags: []
       {/* ── Left sidebar ────────────────────────────────────────────────────── */}
       <AnimatePresence initial={false}>
         {!sidebarCollapsed && (
-          <motion.div
+          <motion.aside
             key="sidebar"
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 280, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
             className="flex flex-col shrink-0 overflow-hidden"
             style={{ borderRight: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)' }}
+            aria-label="문서 사이드바"
           >
             {/* ── Compact drop zone ───────────────────────────────────────── */}
             <div className="px-3 pt-3 pb-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
               <div
-                {...getRootProps()}
+                {...getRootProps({
+                  role: 'button',
+                  'aria-label': '파일 업로드 — 드래그하거나 클릭, 최대 50MB',
+                  'aria-disabled': isUploading,
+                })}
                 className={cn(
-                  'dropzone flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all',
+                  'dropzone flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer',
                   isDragActive && 'active',
                   isDragReject && '!border-status-error',
                   isUploading && 'opacity-50 cursor-not-allowed',
@@ -728,8 +743,9 @@ tags: []
               >
                 <input {...getInputProps()} />
                 <motion.div
-                  animate={isDragActive ? { scale: 1.15 } : { scale: 1 }}
-                  transition={{ duration: 0.15 }}
+                  animate={isDragActive ? { scale: 1.12 } : { scale: 1 }}
+                  transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
+                  aria-hidden="true"
                 >
                   {isUploading ? (
                     <Loader2 size={18} className="text-gold-500 animate-spin shrink-0" />
@@ -737,9 +753,10 @@ tags: []
                     <UploadCloud
                       size={18}
                       className={cn(
-                        'shrink-0 transition-colors',
+                        'shrink-0',
                         isDragActive ? 'text-gold-500' : 'text-surface-600',
                       )}
+                      style={{ transition: 'color 200ms var(--ease-out)' }}
                     />
                   )}
                 </motion.div>
@@ -758,13 +775,16 @@ tags: []
               </div>
 
               {/* Upload progress summary */}
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {activeJobs.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                     className="mt-2 space-y-1.5"
+                    role="list"
+                    aria-label="업로드 진행 중인 파일"
                   >
                     {activeJobs.map((job) => (
                       <UploadJobCard key={job.id} job={job} onCancel={cancelJob} />
@@ -776,25 +796,35 @@ tags: []
               {/* Job history toggle */}
               {totalJobCount > 0 && activeJobs.length === 0 && (
                 <button
+                  type="button"
                   onClick={() => setShowUploadHistory((v) => !v)}
-                  className="mt-2 w-full flex items-center gap-1.5 text-2xs text-surface-600 hover:text-gold-500 transition-colors py-1"
+                  className="mt-2 w-full flex items-center gap-1.5 text-2xs text-surface-600 hover:text-gold-500 py-1"
+                  style={{ transition: 'color 200ms var(--ease-out)' }}
+                  aria-expanded={showUploadHistory}
+                  aria-controls="upload-history"
                 >
-                  <Clock size={11} />
+                  <Clock size={11} aria-hidden="true" />
                   최근 업로드 {totalJobCount}건
                   <ChevronRight
                     size={10}
-                    className={cn('ml-auto transition-transform', showUploadHistory && 'rotate-90')}
+                    className={cn('ml-auto', showUploadHistory && 'rotate-90')}
+                    style={{ transition: 'transform 200ms var(--ease-out)' }}
+                    aria-hidden="true"
                   />
                 </button>
               )}
 
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {showUploadHistory && (
                   <motion.div
+                    id="upload-history"
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                     className="mt-1 space-y-1.5 max-h-48 overflow-y-auto"
+                    role="list"
+                    aria-label="업로드 히스토리"
                   >
                     {/* Folder jobs */}
                     {folderJobs.map((fj) => (
@@ -839,26 +869,41 @@ tags: []
             </div>
 
             {/* ── Shared / Private tabs ────────────────────────────────────── */}
-            <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <div
+              className="flex shrink-0"
+              style={{ borderBottom: '1px solid var(--color-border)' }}
+              role="tablist"
+              aria-label="파일 스코프"
+            >
               <button
+                type="button"
+                role="tab"
+                aria-selected={fileTab === 'private'}
+                tabIndex={fileTab === 'private' ? 0 : -1}
                 onClick={() => setFileTab('private')}
                 className={cn(
-                  'flex-1 py-2 text-xs font-semibold transition-colors',
+                  'flex-1 py-2 text-xs font-semibold',
                   fileTab === 'private'
                     ? 'text-gold-500 border-b-2 border-gold-500'
                     : 'text-surface-600 hover:text-surface-800',
                 )}
+                style={{ minHeight: '36px', transition: 'color 200ms var(--ease-out)' }}
               >
                 개인 파일
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={fileTab === 'shared'}
+                tabIndex={fileTab === 'shared' ? 0 : -1}
                 onClick={() => setFileTab('shared')}
                 className={cn(
-                  'flex-1 py-2 text-xs font-semibold transition-colors',
+                  'flex-1 py-2 text-xs font-semibold',
                   fileTab === 'shared'
                     ? 'text-gold-500 border-b-2 border-gold-500'
                     : 'text-surface-600 hover:text-surface-800',
                 )}
+                style={{ minHeight: '36px', transition: 'color 200ms var(--ease-out)' }}
               >
                 공유 파일
               </button>
@@ -872,71 +917,108 @@ tags: []
               <span className="text-2xs text-surface-600 font-mono truncate">
                 {fileTab === 'private' ? `Private/${userId}/` : 'Shared/'}
               </span>
-              <div className="flex items-center gap-1">
+              <div
+                className="flex items-center gap-1"
+                role="toolbar"
+                aria-label="파일 트리 작업"
+              >
                 <button
+                  type="button"
                   onClick={toggleSelectMode}
                   className={cn(
-                    'w-6 h-6 rounded flex items-center justify-center transition-colors',
+                    'inline-flex items-center justify-center rounded',
                     selectMode
                       ? 'text-gold-500 bg-gold-500/10'
                       : 'text-surface-600 hover:text-gold-500 hover:bg-surface-200',
                   )}
-                  title={selectMode ? '선택 모드 해제' : '멀티 선택'}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                  }}
+                  aria-label={selectMode ? '선택 모드 해제' : '멀티 선택 모드'}
+                  aria-pressed={selectMode}
                 >
-                  {selectMode ? <CheckSquare size={13} /> : <Square size={13} />}
+                  {selectMode
+                    ? <CheckSquare size={13} aria-hidden="true" />
+                    : <Square size={13} aria-hidden="true" />
+                  }
                 </button>
                 <button
+                  type="button"
                   onClick={() => setShowNewDocModal(true)}
-                  className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-gold-500 hover:bg-surface-200 transition-colors"
-                  title="새 문서"
+                  className="inline-flex items-center justify-center rounded text-surface-600 hover:text-gold-500 hover:bg-surface-200"
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                  }}
+                  aria-label="새 문서 만들기"
                 >
-                  <Plus size={13} />
+                  <Plus size={13} aria-hidden="true" />
                 </button>
                 <button
+                  type="button"
                   onClick={fetchFiles}
                   disabled={isLoadingFiles}
-                  className="w-6 h-6 rounded flex items-center justify-center text-surface-600 hover:text-surface-900 hover:bg-surface-200 transition-colors"
-                  title="새로고침"
+                  className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200"
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                  }}
+                  aria-label="파일 목록 새로고침"
                 >
-                  <RefreshCw size={12} className={cn(isLoadingFiles && 'animate-spin')} />
+                  <RefreshCw size={12} className={cn(isLoadingFiles && 'animate-spin')} aria-hidden="true" />
                 </button>
               </div>
             </div>
 
             {/* ── Select mode toolbar ──────────────────────────────────────── */}
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {selectMode && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                   className="flex items-center gap-2 px-3 py-2 shrink-0 overflow-hidden"
                   style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-elevated)' }}
+                  role="toolbar"
+                  aria-label="선택 작업"
                 >
                   <button
+                    type="button"
                     onClick={handleSelectAll}
-                    className="text-2xs text-surface-700 hover:text-gold-500 transition-colors"
+                    className="text-2xs text-surface-700 hover:text-gold-500"
+                    style={{ transition: 'color 200ms var(--ease-out)' }}
                   >
                     {selectedPaths.size === files.length && selectedFolders.size === 0
                       ? '전체 해제'
                       : '전체 선택'}
                   </button>
-                  <span className="text-2xs text-surface-600 ml-auto font-mono">
+                  <span className="text-2xs text-surface-600 ml-auto font-mono" aria-live="polite">
                     {selectedFolders.size > 0 && `${selectedFolders.size}폴더 `}
                     {standaloneFiles.length > 0 && `${standaloneFiles.length}파일`}
                     {!hasSelection && '0개 선택'}
                   </span>
                   <button
+                    type="button"
                     onClick={() => hasSelection && setShowBulkDeleteModal(true)}
                     disabled={!hasSelection}
                     className={cn(
-                      'flex items-center gap-1 text-2xs px-2 py-1 rounded transition-colors',
+                      'flex items-center gap-1 text-2xs px-2 py-1 rounded',
                       hasSelection
                         ? 'bg-status-error/10 text-status-error hover:bg-status-error/20'
                         : 'text-surface-500 cursor-not-allowed',
                     )}
+                    style={{
+                      minHeight: '28px',
+                      transition: 'background-color 200ms var(--ease-out)',
+                    }}
+                    aria-label="선택한 항목 삭제"
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={11} aria-hidden="true" />
                     삭제
                   </button>
                 </motion.div>
@@ -946,7 +1028,12 @@ tags: []
             {/* ── File tree ────────────────────────────────────────────────── */}
             <div className="flex-1 overflow-y-auto py-1">
               {isLoadingFiles ? (
-                <div className="p-3 space-y-1.5">
+                <div
+                  className="p-3 space-y-1.5"
+                  role="status"
+                  aria-busy="true"
+                  aria-label="파일 목록 불러오는 중"
+                >
                   {Array.from({ length: 10 }).map((_, i) => (
                     <div
                       key={i}
@@ -956,8 +1043,10 @@ tags: []
                         i % 3 === 1 && 'w-full',
                         i % 3 === 2 && 'w-5/6',
                       )}
+                      aria-hidden="true"
                     />
                   ))}
+                  <span className="sr-only">파일 목록을 불러오는 중입니다</span>
                 </div>
               ) : (
                 <FileTree
@@ -991,22 +1080,27 @@ tags: []
                 {...({ webkitdirectory: '', directory: '', multiple: true } as React.InputHTMLAttributes<HTMLInputElement>)}
               />
               <button
+                type="button"
                 onClick={() => folderInputRef.current?.click()}
                 disabled={isUploading}
                 className={cn(
-                  'flex items-center gap-1.5 text-2xs text-surface-600 hover:text-gold-500 transition-colors py-1 px-2 rounded hover:bg-surface-200',
+                  'flex items-center gap-1.5 text-2xs text-surface-600 hover:text-gold-500 py-1 px-2 rounded hover:bg-surface-200',
                   isUploading && 'opacity-50 cursor-not-allowed',
                 )}
-                title="폴더 전체 업로드"
+                style={{
+                  minHeight: '28px',
+                  transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                }}
+                aria-label="폴더 전체 업로드"
               >
-                <FolderUp size={13} />
+                <FolderUp size={13} aria-hidden="true" />
                 폴더 업로드
               </button>
-              <span className="ml-auto text-2xs font-mono text-surface-600">
+              <span className="ml-auto text-2xs font-mono text-surface-600" aria-live="polite">
                 {files.length}개 파일
               </span>
             </div>
-          </motion.div>
+          </motion.aside>
         )}
       </AnimatePresence>
 
@@ -1024,56 +1118,76 @@ tags: []
             >
               {/* Sidebar toggle */}
               <button
+                type="button"
                 onClick={() => setSidebarCollapsed((v) => !v)}
-                className="w-7 h-7 rounded flex items-center justify-center text-surface-600 hover:text-surface-900 hover:bg-surface-200 transition-colors shrink-0"
-                title={sidebarCollapsed ? '사이드바 열기' : '사이드바 닫기'}
+                className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200 shrink-0"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                }}
+                aria-label={sidebarCollapsed ? '사이드바 열기' : '사이드바 닫기'}
+                aria-expanded={!sidebarCollapsed}
               >
-                {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+                {sidebarCollapsed
+                  ? <PanelLeftOpen size={14} aria-hidden="true" />
+                  : <PanelLeftClose size={14} aria-hidden="true" />
+                }
               </button>
 
               {/* Breadcrumb */}
-              <nav className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-                {pathParts.map((part, i) => (
-                  <span key={i} className="flex items-center gap-1 shrink-0">
-                    {i > 0 && <ChevronRight size={10} className="text-surface-600" />}
-                    <span
-                      className={cn(
-                        'text-xs truncate max-w-[120px]',
-                        i === pathParts.length - 1
-                          ? 'text-gold-500 font-semibold'
-                          : 'text-surface-700',
-                      )}
-                      title={part}
-                    >
-                      {part}
-                    </span>
-                  </span>
-                ))}
+              <nav aria-label="문서 경로" className="flex-1 min-w-0 overflow-hidden">
+                <ol className="flex items-center gap-1">
+                  {pathParts.map((part, i) => (
+                    <li key={i} className="flex items-center gap-1 shrink-0">
+                      {i > 0 && <ChevronRight size={10} className="text-surface-600" aria-hidden="true" />}
+                      <span
+                        className={cn(
+                          'text-xs truncate max-w-[120px]',
+                          i === pathParts.length - 1
+                            ? 'text-gold-500 font-semibold'
+                            : 'text-surface-700',
+                        )}
+                        title={part}
+                        aria-current={i === pathParts.length - 1 ? 'page' : undefined}
+                      >
+                        {part}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
               </nav>
 
               {/* Actions */}
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div
+                className="flex items-center gap-1.5 shrink-0"
+                role="toolbar"
+                aria-label="문서 작업"
+              >
                 {isEditing ? (
                   <>
                     <button
+                      type="button"
                       onClick={() => {
                         setIsEditing(false)
                         setEditContent(doc.content)
                       }}
                       className="btn-secondary flex items-center gap-1.5 text-xs py-1.5"
                     >
-                      <X size={12} />
+                      <X size={12} aria-hidden="true" />
                       취소
                     </button>
                     <button
+                      type="button"
                       onClick={handleSave}
                       disabled={isSaving}
                       className="btn-primary flex items-center gap-1.5 text-xs py-1.5"
+                      aria-busy={isSaving}
                     >
                       {isSaving ? (
-                        <Loader2 size={12} className="animate-spin" />
+                        <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                       ) : (
-                        <Save size={12} />
+                        <Save size={12} aria-hidden="true" />
                       )}
                       저장
                     </button>
@@ -1081,29 +1195,32 @@ tags: []
                 ) : (
                   <>
                     <button
+                      type="button"
                       onClick={() => setIsEditing(true)}
                       className="btn-secondary flex items-center gap-1.5 text-xs py-1.5"
-                      title="편집"
+                      aria-label="문서 편집"
                     >
-                      <Edit3 size={12} />
+                      <Edit3 size={12} aria-hidden="true" />
                       편집
                     </button>
                     <button
+                      type="button"
                       className="btn-secondary flex items-center gap-1.5 text-xs py-1.5 opacity-50 cursor-not-allowed"
-                      title="버전 기록 (준비 중)"
+                      aria-label="버전 기록 (준비 중)"
                       disabled
                     >
-                      <History size={12} />
+                      <History size={12} aria-hidden="true" />
                       기록
                     </button>
                     <button
+                      type="button"
                       onClick={() =>
                         selectedVaultPath && requestDelete(selectedVaultPath, 'file')
                       }
                       className="btn-danger flex items-center gap-1.5 text-xs py-1.5"
-                      title="삭제"
+                      aria-label="문서 삭제"
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={12} aria-hidden="true" />
                       삭제
                     </button>
                   </>
@@ -1113,12 +1230,20 @@ tags: []
 
             {/* Content */}
             {isLoadingDoc ? (
-              <div className="flex-1 flex items-center justify-center">
-                <Loader2 size={24} className="text-surface-600 animate-spin" />
+              <div
+                className="flex-1 flex items-center justify-center"
+                role="status"
+                aria-live="polite"
+                aria-label="문서 불러오는 중"
+              >
+                <Loader2 size={24} className="text-surface-600 animate-spin" aria-hidden="true" />
+                <span className="sr-only">문서를 불러오는 중입니다</span>
               </div>
             ) : isEditing ? (
               <div className="flex-1 overflow-hidden flex">
+                <label htmlFor="doc-editor" className="sr-only">문서 편집</label>
                 <textarea
+                  id="doc-editor"
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
                   className="flex-1 p-5 font-mono text-sm text-surface-800 resize-none focus:outline-none"
@@ -1130,9 +1255,10 @@ tags: []
                   }}
                   spellCheck={false}
                 />
-                <div
+                <aside
                   className="flex-1 overflow-y-auto p-5"
                   style={{ borderLeft: '1px solid var(--color-border)' }}
+                  aria-label="편집 미리보기"
                 >
                   <p className="text-2xs font-mono text-surface-600 uppercase tracking-widest mb-3">
                     미리보기
@@ -1141,14 +1267,14 @@ tags: []
                     frontmatter={parseFrontmatter(editContent).frontmatter}
                   />
                   <MarkdownViewer content={parseFrontmatter(editContent).body} />
-                </div>
+                </aside>
               </div>
             ) : (
               <motion.div
                 key={doc.path}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ duration: 0.15 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className="flex-1 overflow-y-auto p-6"
               >
                 <FrontmatterDisplay frontmatter={frontmatter} />
@@ -1168,11 +1294,21 @@ tags: []
               }}
             >
               <button
+                type="button"
                 onClick={() => setSidebarCollapsed((v) => !v)}
-                className="w-7 h-7 rounded flex items-center justify-center text-surface-600 hover:text-surface-900 hover:bg-surface-200 transition-colors"
-                title={sidebarCollapsed ? '사이드바 열기' : '사이드바 닫기'}
+                className="inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900 hover:bg-surface-200"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                }}
+                aria-label={sidebarCollapsed ? '사이드바 열기' : '사이드바 닫기'}
+                aria-expanded={!sidebarCollapsed}
               >
-                {sidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+                {sidebarCollapsed
+                  ? <PanelLeftOpen size={14} aria-hidden="true" />
+                  : <PanelLeftClose size={14} aria-hidden="true" />
+                }
               </button>
               <span className="text-xs text-surface-600">문서를 선택하거나 파일을 업로드하세요</span>
             </div>
@@ -1181,6 +1317,7 @@ tags: []
               className="flex-1 flex flex-col items-center justify-center text-center p-8"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
             >
               <div
                 className="w-16 h-16 rounded-xl flex items-center justify-center mb-4"
@@ -1188,19 +1325,24 @@ tags: []
                   background: 'var(--color-bg-secondary)',
                   border: '1px solid var(--color-border)',
                 }}
+                aria-hidden="true"
               >
                 <FileText size={24} className="text-surface-600" />
               </div>
-              <h3 className="font-display font-semibold text-surface-800 text-lg mb-2">
+              <h2 className="font-display font-semibold text-surface-800 text-lg mb-2">
                 문서 관리
-              </h3>
+              </h2>
               <p className="text-sm text-surface-600 max-w-sm mb-6">
                 왼쪽 파일 트리에서 문서를 선택하거나, 드래그 앤 드롭으로 새 파일을 업로드하세요.
               </p>
 
               {/* Quick access drop zone in empty state */}
               <div
-                {...getRootProps()}
+                {...getRootProps({
+                  role: 'button',
+                  'aria-label': '파일 업로드 영역 — 드래그하거나 클릭',
+                  'aria-disabled': isUploading,
+                })}
                 className={cn(
                   'dropzone flex flex-col items-center justify-center py-10 px-12 text-center cursor-pointer rounded-xl w-full max-w-sm',
                   isDragActive && 'active',
@@ -1210,15 +1352,17 @@ tags: []
               >
                 <input {...getInputProps()} />
                 <motion.div
-                  animate={isDragActive ? { scale: 1.12, rotate: 5 } : { scale: 1, rotate: 0 }}
-                  transition={{ duration: 0.2 }}
+                  animate={isDragActive ? { scale: 1.1, rotate: 3 } : { scale: 1, rotate: 0 }}
+                  transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
+                  aria-hidden="true"
                 >
                   <UploadCloud
                     size={36}
                     className={cn(
-                      'mb-3 transition-colors',
+                      'mb-3',
                       isDragActive ? 'text-gold-500' : 'text-surface-500',
                     )}
+                    style={{ transition: 'color 200ms var(--ease-out)' }}
                   />
                 </motion.div>
                 {isDragActive ? (
@@ -1248,16 +1392,19 @@ tags: []
               </div>
 
               {/* Active upload progress in empty state */}
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {activeJobs.length > 0 && (
                   <motion.div
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
                     className="mt-4 w-full max-w-sm space-y-2"
+                    role="list"
+                    aria-label="업로드 진행 상태"
                   >
                     <div className="flex items-center gap-2">
-                      <Loader2 size={13} className="text-gold-500 animate-spin" />
+                      <Loader2 size={13} className="text-gold-500 animate-spin" aria-hidden="true" />
                       <p className="text-xs font-semibold text-surface-800">
                         처리 중 ({activeJobs.length})
                       </p>
@@ -1288,19 +1435,24 @@ tags: []
         isLoading={isCreating}
       >
         <div>
-          <label className="text-xs font-semibold text-surface-700 block mb-1.5">
+          <label
+            htmlFor="new-doc-path"
+            className="text-xs font-semibold text-surface-700 block mb-1.5"
+          >
             파일 경로
           </label>
           <input
+            id="new-doc-path"
             type="text"
             value={newDocPath}
             onChange={(e) => setNewDocPath(e.target.value)}
             placeholder={`예: Private/${userId}/보고서/2024-Q4.md`}
             className="input-field"
             onKeyDown={(e) => e.key === 'Enter' && handleCreateDoc()}
-            autoFocus
+            autoComplete="off"
+            aria-describedby="new-doc-path-hint"
           />
-          <p className="text-2xs text-surface-600 mt-1.5">
+          <p id="new-doc-path-hint" className="text-2xs text-surface-600 mt-1.5">
             .md 확장자가 없으면 자동 추가됩니다.
           </p>
         </div>
@@ -1348,32 +1500,33 @@ tags: []
           <p className="text-sm text-surface-800 mb-3">
             선택한 항목이 영구적으로 삭제됩니다.
           </p>
-          <div
+          <ul
             className="max-h-48 overflow-y-auto rounded p-2 space-y-0.5"
             style={{ background: 'var(--color-bg-elevated)' }}
+            aria-label="삭제 대상 목록"
           >
             {Array.from(selectedFolders)
               .sort()
               .map((p) => (
-                <p
+                <li
                   key={p}
                   className="text-2xs font-mono text-status-error truncate flex items-center gap-1.5"
                   title={p}
                 >
-                  <FolderX size={11} className="shrink-0" />
+                  <FolderX size={11} className="shrink-0" aria-hidden="true" />
                   {p}/ <span className="text-surface-600">(하위 전체)</span>
-                </p>
+                </li>
               ))}
             {standaloneFiles.sort().map((p) => (
-              <p
+              <li
                 key={p}
                 className="text-2xs font-mono text-surface-700 truncate"
                 title={p}
               >
                 {p}
-              </p>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </Modal>
     </div>

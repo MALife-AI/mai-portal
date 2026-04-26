@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -17,6 +17,8 @@ import { useStore } from '@/store/useStore'
 import { useToast } from '@/store/useStore'
 import { formatDate, truncate, cn } from '@/lib/utils'
 
+const EASE: [number, number, number, number] = [0.23, 1, 0.32, 1]
+
 // Highlight matching text safely without innerHTML
 function HighlightedText({ text, query }: { text: string; query: string }) {
   if (!query.trim()) return <span>{text}</span>
@@ -30,7 +32,10 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
           <mark
             key={i}
             className="rounded px-0.5"
-            style={{ background: 'rgba(243, 112, 33, 0.25)', color: '#F37021' }}
+            style={{
+              background: 'color-mix(in srgb, var(--color-gold) 25%, transparent)',
+              color: 'var(--color-gold)',
+            }}
           >
             {part}
           </mark>
@@ -64,81 +69,97 @@ function ResultCard({
   const workspace = result.metadata?.workspace ?? path.split('/')[0] ?? ''
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
+    <motion.article
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="card p-5 cursor-pointer group"
-      onClick={() => path && onNavigate(path)}
+      transition={{ duration: 0.2, ease: EASE }}
     >
-      <div className="flex items-start justify-between gap-4 mb-2">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <div
-            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-            style={{ background: 'var(--color-bg-elevated)' }}
-          >
-            <FileText size={14} className="text-gold-500" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="font-semibold text-surface-900 group-hover:text-gold-500 transition-colors truncate">
-              {title}
-            </h3>
-            <p className="text-2xs font-mono text-surface-600 mt-0.5 truncate">{path}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {score && (
+      <button
+        type="button"
+        className="card p-5 w-full text-left group"
+        onClick={() => path && onNavigate(path)}
+        disabled={!path}
+        aria-label={`${title} — ${workspace || ''} 문서 열기`}
+      >
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
             <div
-              className="px-2 py-0.5 rounded text-2xs font-mono"
+              className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 mt-0.5"
               style={{ background: 'var(--color-bg-elevated)' }}
+              aria-hidden="true"
             >
-              <span className="text-surface-600">유사도 </span>
-              <span className="text-gold-500 font-bold">{score}</span>
+              <FileText size={14} className="text-gold-500" />
             </div>
-          )}
-          {workspace && (
-            <span className={cn('tag', workspace === 'Shared' ? 'tag-success' : 'tag-warning')}>
-              {workspace}
-            </span>
-          )}
-          <ArrowRight
-            size={14}
-            className="text-surface-600 group-hover:text-gold-500 group-hover:translate-x-1 transition-all"
-          />
+            <div className="min-w-0">
+              <h3
+                className="font-semibold text-surface-900 group-hover:text-gold-500 truncate"
+                style={{ transition: 'color 200ms var(--ease-out)' }}
+              >
+                {title}
+              </h3>
+              <p className="text-2xs font-mono text-surface-600 mt-0.5 truncate">{path}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {score && (
+              <div
+                className="px-2 py-0.5 rounded text-2xs font-mono"
+                style={{ background: 'var(--color-bg-elevated)' }}
+                aria-label={`유사도 ${score}`}
+              >
+                <span className="text-surface-600">유사도 </span>
+                <span className="text-gold-500 font-bold">{score}</span>
+              </div>
+            )}
+            {workspace && (
+              <span className={cn('tag', workspace === 'Shared' ? 'tag-success' : 'tag-warning')}>
+                {workspace}
+              </span>
+            )}
+            <ArrowRight
+              size={14}
+              className="text-surface-600 group-hover:text-gold-500 group-hover:translate-x-1"
+              style={{ transition: 'color 200ms var(--ease-out), transform 200ms var(--ease-out)' }}
+              aria-hidden="true"
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Excerpt with safe highlighting */}
-      {excerpt && (
-        <div
-          className="mt-3 px-3 py-2.5 rounded text-xs text-surface-700 leading-relaxed"
-          style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
-        >
-          <HighlightedText text={excerpt} query={query} />
-        </div>
-      )}
-
-      {/* Meta */}
-      <div className="flex items-center gap-3 mt-3 flex-wrap">
-        {owner && (
-          <div className="flex items-center gap-1 text-2xs text-surface-600 font-mono">
-            <User size={10} />
-            {owner}
+        {/* Excerpt with safe highlighting */}
+        {excerpt && (
+          <div
+            className="mt-3 px-3 py-2.5 rounded text-xs text-surface-700 leading-relaxed"
+            style={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+          >
+            <HighlightedText text={excerpt} query={query} />
           </div>
         )}
-        {date && (
-          <div className="flex items-center gap-1 text-2xs text-surface-600 font-mono">
-            <Calendar size={10} />
-            {formatDate(date)}
+
+        {/* Meta */}
+        {(owner || date || tags.length > 0) && (
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            {owner && (
+              <div className="flex items-center gap-1 text-2xs text-surface-600 font-mono">
+                <User size={10} aria-hidden="true" />
+                {owner}
+              </div>
+            )}
+            {date && (
+              <div className="flex items-center gap-1 text-2xs text-surface-600 font-mono">
+                <Calendar size={10} aria-hidden="true" />
+                <time dateTime={date}>{formatDate(date)}</time>
+              </div>
+            )}
+            {tags.map((tag) => (
+              <div key={tag} className="flex items-center gap-0.5 text-2xs">
+                <Tag size={9} className="text-gold-600" aria-hidden="true" />
+                <span className="tag tag-gold py-0 px-1.5">{tag}</span>
+              </div>
+            ))}
           </div>
         )}
-        {tags.map((tag) => (
-          <div key={tag} className="flex items-center gap-0.5 text-2xs">
-            <Tag size={9} className="text-gold-600" />
-            <span className="tag tag-gold py-0 px-1.5">{tag}</span>
-          </div>
-        ))}
-      </div>
-    </motion.div>
+      </button>
+    </motion.article>
   )
 }
 
@@ -147,6 +168,9 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
   const navigate = useNavigate()
   const toast = useToast()
   const setSelectedVaultPath = useStore((s) => s.setSelectedVaultPath)
+  const queryInputId = useId()
+  const workspaceGroupId = useId()
+  const countGroupId = useId()
 
   const initialQuery = searchParams.get('q') ?? ''
   const [query, setQuery] = useState(initialQuery)
@@ -223,20 +247,27 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
 
       {/* Search form */}
       <div className="panel p-4">
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3" role="search">
+          <label htmlFor={queryInputId} className="sr-only">검색어</label>
           <div className="relative flex items-center gap-3">
             <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-600 pointer-events-none">
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-600 pointer-events-none"
+                aria-hidden="true"
+              >
                 <SearchIcon size={16} />
               </span>
               <input
-                type="text"
+                id={queryInputId}
+                type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="자연어로 검색하세요... 예: 보험 면책 조항 관련 규정"
                 className="input-field pl-10 text-base"
                 style={{ fontSize: '0.9375rem', paddingLeft: '2.5rem' }}
-                autoFocus
+                autoFocus={!hideHeader}
+                autoComplete="off"
+                aria-busy={isLoading}
               />
               {query && (
                 <button
@@ -247,17 +278,27 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
                     setHasSearched(false)
                     setSearchParams({})
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-600 hover:text-surface-900"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center rounded text-surface-600 hover:text-surface-900"
+                  style={{
+                    width: '22px',
+                    height: '22px',
+                    transition: 'color 200ms var(--ease-out)',
+                  }}
+                  aria-label="검색어 지우기"
                 >
-                  <X size={14} />
+                  <X size={14} aria-hidden="true" />
                 </button>
               )}
             </div>
-            <button type="submit" className="btn-primary px-5 py-2.5 flex items-center gap-2 whitespace-nowrap">
+            <button
+              type="submit"
+              className="btn-primary px-5 py-2.5 flex items-center gap-2 whitespace-nowrap"
+              aria-busy={isLoading}
+            >
               {isLoading ? (
-                <Loader2 size={14} className="animate-spin" />
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
               ) : (
-                <SearchIcon size={14} />
+                <SearchIcon size={14} aria-hidden="true" />
               )}
               검색
             </button>
@@ -268,61 +309,96 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
                 'btn-secondary py-2.5 flex items-center gap-1.5 whitespace-nowrap',
                 showFilters && 'border-gold-500/30 text-gold-500',
               )}
+              aria-expanded={showFilters}
+              aria-controls="search-filters"
             >
-              <SlidersHorizontal size={13} />
+              <SlidersHorizontal size={13} aria-hidden="true" />
               필터
             </button>
           </div>
 
           {/* Filters */}
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {showFilters && (
               <motion.div
+                id="search-filters"
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE }}
                 style={{ overflow: 'hidden' }}
               >
                 <div className="pt-3 border-t border-surface-300 flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-surface-700 font-semibold whitespace-nowrap">
+                    <span
+                      id={workspaceGroupId}
+                      className="text-xs text-surface-700 font-semibold whitespace-nowrap"
+                    >
                       워크스페이스:
-                    </label>
-                    {(['all', 'Shared', 'Private'] as const).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setFilterWorkspace(opt)}
-                        className={cn(
-                          'px-2.5 py-1 rounded text-xs font-semibold transition-colors',
-                          filterWorkspace === opt
-                            ? 'bg-gold-500/20 text-gold-500 border border-gold-500/30'
-                            : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
-                        )}
-                      >
-                        {opt === 'all' ? '전체' : opt}
-                      </button>
-                    ))}
+                    </span>
+                    <div
+                      role="radiogroup"
+                      aria-labelledby={workspaceGroupId}
+                      className="flex items-center gap-2"
+                    >
+                      {(['all', 'Shared', 'Private'] as const).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          role="radio"
+                          aria-checked={filterWorkspace === opt}
+                          onClick={() => setFilterWorkspace(opt)}
+                          className={cn(
+                            'px-2.5 py-1 rounded text-xs font-semibold',
+                            filterWorkspace === opt
+                              ? 'bg-gold-500/20 text-gold-500 border border-gold-500/30'
+                              : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
+                          )}
+                          style={{
+                            minHeight: '28px',
+                            transition: 'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                          }}
+                        >
+                          {opt === 'all' ? '전체' : opt}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-surface-700 font-semibold whitespace-nowrap">
+                    <span
+                      id={countGroupId}
+                      className="text-xs text-surface-700 font-semibold whitespace-nowrap"
+                    >
                       결과 수:
-                    </label>
-                    {[5, 10, 20, 50].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setResultCount(n)}
-                        className={cn(
-                          'w-10 py-1 rounded text-xs font-mono transition-colors',
-                          resultCount === n
-                            ? 'bg-gold-500/20 text-gold-500 border border-gold-500/30'
-                            : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
-                        )}
-                      >
-                        {n}
-                      </button>
-                    ))}
+                    </span>
+                    <div
+                      role="radiogroup"
+                      aria-labelledby={countGroupId}
+                      className="flex items-center gap-2"
+                    >
+                      {[5, 10, 20, 50].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          role="radio"
+                          aria-checked={resultCount === n}
+                          onClick={() => setResultCount(n)}
+                          className={cn(
+                            'w-10 py-1 rounded text-xs font-mono',
+                            resultCount === n
+                              ? 'bg-gold-500/20 text-gold-500 border border-gold-500/30'
+                              : 'bg-surface-200 text-surface-700 border border-surface-300 hover:border-surface-400',
+                          )}
+                          style={{
+                            minHeight: '28px',
+                            transition: 'background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+                          }}
+                          aria-label={`결과 ${n}개`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -333,13 +409,19 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
 
       {/* Results */}
       {isLoading ? (
-        <div className="space-y-3">
+        <div
+          className="space-y-3"
+          role="status"
+          aria-busy="true"
+          aria-label="검색 결과 불러오는 중"
+        >
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="skeleton h-28 rounded-md" />
+            <div key={i} className="skeleton h-28 rounded-md" aria-hidden="true" />
           ))}
+          <span className="sr-only">검색 결과를 불러오는 중입니다</span>
         </div>
       ) : hasSearched ? (
-        <div>
+        <section aria-live="polite" aria-label="검색 결과">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm text-surface-700">
               <span className="font-mono font-bold text-surface-900">{results.length}</span>개 결과
@@ -355,9 +437,10 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, ease: EASE }}
               className="text-center py-16"
             >
-              <SearchIcon size={36} className="text-surface-600 mx-auto mb-3" />
+              <SearchIcon size={36} className="text-surface-600 mx-auto mb-3" aria-hidden="true" />
               <h3 className="font-display font-semibold text-surface-800 text-lg mb-2">
                 검색 결과 없음
               </h3>
@@ -366,56 +449,67 @@ export default function Search({ hideHeader = false }: { hideHeader?: boolean } 
               </p>
             </motion.div>
           ) : (
-            <div className="space-y-3">
+            <ul className="space-y-3" aria-label={`${results.length}개 검색 결과`}>
               {results.map((result, i) => (
-                <motion.div
+                <motion.li
                   key={result.id ?? i}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
+                  transition={{ duration: 0.18, ease: EASE, delay: Math.min(i * 0.03, 0.25) }}
                 >
                   <ResultCard
                     result={result}
                     query={query}
                     onNavigate={handleResultClick}
                   />
-                </motion.div>
+                </motion.li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
+        </section>
       ) : (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, ease: EASE }}
           className="text-center py-16"
         >
-          <SearchIcon size={48} className="text-surface-600 mx-auto mb-4 opacity-50" />
-          <h3 className="font-display font-semibold text-surface-800 text-lg mb-2">
+          <SearchIcon
+            size={48}
+            className="text-surface-600 mx-auto mb-4 opacity-50"
+            aria-hidden="true"
+          />
+          <h2 className="font-display font-semibold text-surface-800 text-lg mb-2">
             시맨틱 검색
-          </h3>
+          </h2>
           <p className="text-sm text-surface-600 max-w-sm mx-auto mb-6">
             자연어로 질의하면 ChromaDB 벡터 유사도 기반으로 가장 관련성 높은 문서를 찾습니다.
           </p>
-          <div className="flex flex-wrap gap-2 justify-center">
+          <ul
+            className="flex flex-wrap gap-2 justify-center"
+            aria-label="추천 검색어"
+          >
             {[
               '보험 약관 면책 조항',
               '투자 위험 고지',
               '고객 민원 처리',
               '금융 규정 준수',
             ].map((suggestion) => (
-              <button
-                key={suggestion}
-                onClick={() => {
-                  setQuery(suggestion)
-                  doSearch(suggestion)
-                }}
-                className="tag tag-gold cursor-pointer hover:bg-gold-500/30 transition-colors text-sm py-1 px-3"
-              >
-                {suggestion}
-              </button>
+              <li key={suggestion}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery(suggestion)
+                    doSearch(suggestion)
+                  }}
+                  className="tag tag-gold hover:bg-gold-500/30 text-sm py-1 px-3"
+                  style={{ transition: 'background-color 200ms var(--ease-out)' }}
+                >
+                  {suggestion}
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         </motion.div>
       )}
     </div>

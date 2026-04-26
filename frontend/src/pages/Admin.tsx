@@ -1133,10 +1133,10 @@ function GovernanceTab() {
       </div>
 
       {/* Recent violations */}
-      {data.recent_violations?.length > 0 && (
+      {(data.recent_violations?.length ?? 0) > 0 && (
         <div className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">최근 권한 위반</p>
-          {data.recent_violations.map((v: any, i: number) => (
+          {data.recent_violations!.map((v: any, i: number) => (
             <div key={i} className="text-xs py-1.5 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
               <AlertTriangle size={11} className="text-status-error shrink-0" />
               <span className="font-mono text-surface-600">{v.user_id}</span>
@@ -1505,6 +1505,7 @@ interface HostStatus {
   memory: { used_gb: number; total_gb: number; percent: number }
   disk: { free_gb: number; total_gb: number; percent: number }
   gpus: GpuCard[]
+  offline?: boolean
 }
 
 interface Machine {
@@ -2456,9 +2457,9 @@ export default function Admin() {
   // admin01만 접근 가능 (프론트 가드 — 백엔드에서도 403 반환)
   if (userId !== 'admin01') {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full" role="alert">
         <div className="text-center">
-          <Shield size={32} className="text-status-error mx-auto mb-3" />
+          <Shield size={32} className="text-status-error mx-auto mb-3" aria-hidden="true" />
           <p className="text-sm font-semibold text-surface-900">관리자 권한 필요</p>
           <p className="text-xs text-surface-600 mt-1">이 페이지는 admin 역할이 필요합니다.</p>
         </div>
@@ -2479,6 +2480,14 @@ export default function Admin() {
     { id: 'shared-docs', label: '공용문서', icon: FolderOpen },
   ]
 
+  function handleTabKey(e: React.KeyboardEvent, currentIdx: number) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const delta = e.key === 'ArrowRight' ? 1 : -1
+    const next = (currentIdx + delta + tabs.length) % tabs.length
+    setTab(tabs[next]!.id)
+  }
+
   return (
     <div className="p-3 sm:p-6 max-w-5xl mx-auto space-y-6">
       <div>
@@ -2487,23 +2496,50 @@ export default function Admin() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-lg overflow-x-auto" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={cn(
-              'flex items-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold transition-colors whitespace-nowrap',
-              tab === id ? 'bg-gold-500 text-surface-DEFAULT' : 'text-surface-600 hover:text-surface-800',
-            )}
-          >
-            <Icon size={13} /> {label}
-          </button>
-        ))}
+      <div
+        role="tablist"
+        aria-label="관리 섹션"
+        className="flex gap-1 p-1 rounded-lg overflow-x-auto"
+        style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+      >
+        {tabs.map(({ id, label, icon: Icon }, idx) => {
+          const selected = tab === id
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`admin-tab-${id}`}
+              aria-selected={selected}
+              aria-controls={`admin-panel-${id}`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setTab(id)}
+              onKeyDown={(e) => handleTabKey(e, idx)}
+              className={cn(
+                'flex items-center gap-1.5 py-2 px-3 rounded-md text-xs font-semibold whitespace-nowrap',
+                selected ? 'bg-gold-500 text-surface-DEFAULT' : 'text-surface-600 hover:text-surface-800',
+              )}
+              style={{
+                minHeight: '34px',
+                transition: 'background-color 200ms var(--ease-out), color 200ms var(--ease-out)',
+              }}
+            >
+              <Icon size={13} aria-hidden="true" /> {label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Content */}
-      <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <motion.div
+        key={tab}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+        role="tabpanel"
+        id={`admin-panel-${tab}`}
+        aria-labelledby={`admin-tab-${tab}`}
+      >
         {tab === 'overview' && <OverviewTab />}
         {tab === 'iam' && <IamTab />}
         {tab === 'departments' && <DepartmentsTab />}

@@ -47,7 +47,11 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   }
 
   return (
-    <span className={cn(classes[normalized], className)}>
+    <span
+      className={cn(classes[normalized], className)}
+      role="status"
+      aria-label={`상태: ${label}`}
+    >
       {label}
     </span>
   )
@@ -56,8 +60,16 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 interface StatusDotProps {
   status: 'active' | 'error' | 'warning' | 'neutral'
   className?: string
+  label?: string
 }
 
-export function StatusDot({ status, className }: StatusDotProps) {
-  return <span className={cn('status-dot', status, className)} />
+export function StatusDot({ status, className, label }: StatusDotProps) {
+  return (
+    <span
+      className={cn('status-dot', status, className)}
+      role={label ? 'status' : 'presentation'}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+    />
+  )
 }

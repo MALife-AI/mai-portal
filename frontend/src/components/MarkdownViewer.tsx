@@ -1,6 +1,8 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 
 interface MarkdownViewerProps {
@@ -26,16 +28,15 @@ function renderCitations(children: React.ReactNode): React.ReactNode {
   const arr = Array.isArray(children) ? children : [children]
   return arr.map((child, i) => {
     if (typeof child !== 'string') return child
-    // Split on citation pattern [1], [2], etc.
     const parts = child.split(/(\[\d+\])/)
     if (parts.length <= 1) return child
     return parts.map((part, j) => {
       const m = part.match(/^\[(\d+)\]$/)
-      if (m) {
+      if (m && m[1]) {
         const idx = parseInt(m[1], 10)
         const color = CITE_COLORS[(idx - 1) % CITE_COLORS.length]
         return (
-          <span
+          <sup
             key={`${i}-${j}`}
             className="inline-flex items-center justify-center rounded font-mono font-bold cursor-default"
             style={{
@@ -44,20 +45,68 @@ function renderCitations(children: React.ReactNode): React.ReactNode {
               padding: '2px 4px',
               marginLeft: '1px',
               marginRight: '1px',
-              background: `${color}22`,
-              color: color,
-              border: `1px solid ${color}44`,
-              verticalAlign: 'super',
+              background: `color-mix(in srgb, ${color} 15%, transparent)`,
+              color,
+              border: `1px solid color-mix(in srgb, ${color} 30%, transparent)`,
             }}
+            aria-label={`출처 ${idx}`}
             title={`출처 ${idx}`}
           >
             {idx}
-          </span>
+          </sup>
         )
       }
       return part
     })
   })
+}
+
+function CodeBlock({ children }: { children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopy() {
+    const text = extractText(children)
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard API 실패 시 무시
+    }
+  }
+
+  return (
+    <div className="relative group">
+      <pre>{children}</pre>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="absolute top-2 right-2 inline-flex items-center gap-1 rounded px-2 py-1 text-2xs font-mono opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border)',
+          color: copied ? 'var(--color-success)' : 'var(--color-text-secondary)',
+          transition: 'opacity 200ms var(--ease-out), color 200ms var(--ease-out)',
+        }}
+        aria-label={copied ? '복사됨' : '코드 복사'}
+      >
+        {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+        <span>{copied ? '복사됨' : '복사'}</span>
+      </button>
+    </div>
+  )
+}
+
+function extractText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join('')
+  if (node && typeof node === 'object' && 'props' in node) {
+    const el = node as { props?: { children?: React.ReactNode } }
+    return extractText(el.props?.children)
+  }
+  return ''
 }
 
 export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps) {
@@ -70,7 +119,6 @@ export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps)
     if (!href) return
     if (href.startsWith('wikilink:')) {
       const linkName = decodeURIComponent(href.slice('wikilink:'.length))
-      // Navigate to vault with the linked document
       setSelectedVaultPath(linkName)
       navigate('/vault')
       return
@@ -85,14 +133,17 @@ export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps)
         components={{
           a: ({ href, children }) => {
             if (href?.startsWith('wikilink:')) {
+              const target = decodeURIComponent(href.slice('wikilink:'.length))
               return (
-                <span
+                <button
+                  type="button"
                   className="wikilink"
                   onClick={() => handleLinkClick(href)}
-                  title={`위키링크: ${decodeURIComponent(href.slice('wikilink:'.length))}`}
+                  title={`위키링크: ${target}`}
+                  aria-label={`${target} 문서로 이동`}
                 >
                   {children}
-                </span>
+                </button>
               )
             }
             return (
@@ -109,26 +160,12 @@ export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps)
               </a>
             )
           },
-          code: ({ className: codeClass, children, ...props }) => {
-            const isInline = !codeClass
-            if (isInline) {
-              return (
-                <code {...props} className={codeClass}>
-                  {children}
-                </code>
-              )
-            }
-            return (
-              <code {...props} className={codeClass}>
-                {children}
-              </code>
-            )
-          },
-          pre: ({ children }) => (
-            <pre>
+          code: ({ className: codeClass, children, ...props }) => (
+            <code {...props} className={codeClass}>
               {children}
-            </pre>
+            </code>
           ),
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           table: ({ children }) => (
             <div className="overflow-x-auto">
               <table>{children}</table>
@@ -159,7 +196,6 @@ export function parseFrontmatter(content: string): {
   const fmText = match[1] ?? ''
   const body = content.slice(match[0].length)
 
-  // Simple YAML parser for common patterns
   const frontmatter: Record<string, unknown> = {}
   for (const line of fmText.split('\n')) {
     const colonIndex = line.indexOf(':')
@@ -194,11 +230,11 @@ export function FrontmatterDisplay({ frontmatter }: FrontmatterDisplayProps) {
   return (
     <div className="bg-surface-50 border border-surface-300 rounded-md p-3 mb-4">
       <p className="text-2xs font-mono text-gold-500 uppercase tracking-widest mb-2">메타데이터</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
         {entries.map(([key, value]) => (
           <div key={key} className="flex items-start gap-2 text-xs">
-            <span className="font-mono text-surface-600 shrink-0">{key}:</span>
-            <span className="text-surface-800 break-all">
+            <dt className="font-mono text-surface-600 shrink-0">{key}:</dt>
+            <dd className="text-surface-800 break-all">
               {Array.isArray(value)
                 ? (value as unknown[]).map((v, i) => (
                     <span key={i} className="tag tag-gold mr-1 mb-0.5 inline-block">
@@ -206,10 +242,10 @@ export function FrontmatterDisplay({ frontmatter }: FrontmatterDisplayProps) {
                     </span>
                   ))
                 : String(value)}
-            </span>
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
     </div>
   )
 }

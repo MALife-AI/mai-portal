@@ -12,17 +12,33 @@
   --color-bg-elevated: #1f2e4d;
   --color-border: #2a3d5e;
   --color-border-subtle: #1f2e4d;
+  --color-border-strong: #3a4f72;
   --color-text-primary: #e8edf4;
   --color-text-secondary: #bcc9d9;
   --color-text-muted: #8a9fb8;
+  --color-text-code: #c8d4e2;
   --color-gold: #F37021;
+  --color-gold-hover: #f69050;
   --color-gold-dim: #b34c10;
   --color-blue: #4A90D9;
   --color-success: #34C759;
   --color-warning: #F5A623;
   --color-error: #FF3B30;
+  --color-skeleton-highlight: #2a3038;
+  --color-bubble-user-from: #1B3A6B;
+  --color-bubble-user-to: #2C5F9E;
+  --color-overlay: rgba(0, 0, 0, 0.7);
+
   --sidebar-width: 240px;
   --header-height: 56px;
+
+  /* Motion tokens (Emil Kowalski easing + taste-skill MOTION=3) */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 280ms;
 }
 
 /* Light theme */
@@ -33,15 +49,23 @@
   --color-bg-elevated: #ffffff;
   --color-border: #d8dde6;
   --color-border-subtle: #e8ecf1;
+  --color-border-strong: #b5bfce;
   --color-text-primary: #111827;
   --color-text-secondary: #374151;
   --color-text-muted: #4b5563;
+  --color-text-code: #1f2937;
   --color-gold: #E06010;
+  --color-gold-hover: #f17030;
   --color-gold-dim: #c44e0c;
   --color-blue: #3b7dd8;
   --color-success: #22a84d;
   --color-warning: #d4901a;
   --color-error: #e53030;
+  --color-skeleton-highlight: #dde3ec;
+  --color-bubble-user-from: #dbeafe;
+  --color-bubble-user-to: #bfdbfe;
+  --color-overlay: rgba(17, 24, 39, 0.5);
+
   --sidebar-width: 240px;
   --header-height: 56px;
 }
@@ -100,7 +124,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4f72;
+  background: var(--color-border-strong);
 }
 
 /* ─── Selection ──────────────────────────────────────────────────────────── */
@@ -113,6 +137,7 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-gold);
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* ─── Typography ─────────────────────────────────────────────────────────── */
@@ -135,11 +160,12 @@ body {
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
 }
 
 .card:hover {
-  border-color: #3a4f72;
+  border-color: var(--color-border-strong);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
@@ -204,7 +230,7 @@ body {
 .markdown-content h3,
 .markdown-content h4 {
   font-family: 'Space Grotesk', 'Pretendard', sans-serif;
-  color: #e8edf4;
+  color: var(--color-text-primary);
   margin-top: 1.5em;
   margin-bottom: 0.5em;
   border-bottom: 1px solid var(--color-border);
@@ -225,7 +251,7 @@ body {
   padding: 0.15em 0.4em;
   border-radius: 3px;
   font-size: 0.875em;
-  color: #F37021;
+  color: var(--color-gold);
   border: 1px solid var(--color-border);
 }
 
@@ -242,7 +268,7 @@ body {
   background: none;
   padding: 0;
   border: none;
-  color: #c8d4e2;
+  color: var(--color-text-code);
   font-size: 0.875rem;
 }
 
@@ -307,6 +333,10 @@ body {
 
 /* Wikilinks */
 .wikilink {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
   color: var(--color-gold);
   cursor: pointer;
   text-decoration: underline;
@@ -320,7 +350,7 @@ body {
 
 /* ─── Chat Bubbles ───────────────────────────────────────────────────────── */
 .bubble-user {
-  background: linear-gradient(135deg, #1B3A6B, #2C5F9E);
+  background: linear-gradient(135deg, var(--color-bubble-user-from), var(--color-bubble-user-to));
   border: 1px solid rgba(74, 144, 217, 0.3);
   border-radius: 16px 16px 4px 16px;
 }
@@ -372,7 +402,8 @@ body {
   padding: 0.5rem 0.75rem;
   font-family: inherit;
   font-size: 0.875rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
   width: 100%;
 }
 
@@ -393,20 +424,27 @@ body {
   border: none;
   border-radius: 4px;
   padding: 0.5rem 1rem;
+  min-height: 36px;
   font-family: inherit;
   font-weight: 600;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.1s ease;
+  transition: background-color var(--duration-base) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
 }
 
 .btn-primary:hover {
-  background: #f69050;
-  transform: translateY(-1px);
+  background: var(--color-gold-hover);
 }
 
 .btn-primary:active {
-  transform: translateY(0);
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .btn-secondary {
@@ -415,15 +453,28 @@ body {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 0.5rem 1rem;
+  min-height: 36px;
   font-family: inherit;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition: border-color var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
 }
 
 .btn-secondary:hover {
-  border-color: #4a6186;
+  border-color: var(--color-border-strong);
   color: var(--color-text-primary);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .btn-danger {
@@ -432,14 +483,20 @@ body {
   border: 1px solid rgba(248, 81, 73, 0.3);
   border-radius: 4px;
   padding: 0.5rem 1rem;
+  min-height: 36px;
   font-family: inherit;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background-color var(--duration-base) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
 }
 
 .btn-danger:hover {
   background: rgba(248, 81, 73, 0.25);
+}
+
+.btn-danger:active {
+  transform: scale(0.97);
 }
 
 /* ─── Tag ────────────────────────────────────────────────────────────────── */
@@ -490,7 +547,7 @@ body {
   background: linear-gradient(
     90deg,
     var(--color-bg-elevated) 25%,
-    #2a3038 50%,
+    var(--color-skeleton-highlight) 50%,
     var(--color-bg-elevated) 75%
   );
   background-size: 200% 100%;
@@ -511,7 +568,8 @@ body {
   padding: 0.5rem 0.75rem;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
   color: var(--color-text-muted);
   font-size: 0.875rem;
   font-weight: 500;
@@ -569,7 +627,8 @@ body {
   cursor: pointer;
   font-size: 0.8rem;
   color: var(--color-text-secondary);
-  transition: background 0.1s ease, color 0.1s ease;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -604,7 +663,9 @@ body {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   border: 2px solid var(--color-border);
-  transition: all 0.3s ease;
+  transition: background-color var(--duration-slow) var(--ease-out),
+              border-color var(--duration-slow) var(--ease-out),
+              color var(--duration-slow) var(--ease-out);
 }
 
 .progress-step-circle.done {
@@ -662,6 +723,19 @@ body {
   gap: 0.625rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   pointer-events: all;
+  animation: toast-enter var(--duration-slow) var(--ease-out);
+  transform-origin: top right;
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .toast.success { border-left: 3px solid var(--color-success); }
@@ -673,12 +747,18 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--color-overlay);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: overlay-fade var(--duration-base) var(--ease-out);
+}
+
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .modal-box {
@@ -689,13 +769,26 @@ body {
   width: 100%;
   max-width: 440px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: modal-enter var(--duration-slow) var(--ease-out);
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 /* ─── Drag and Drop Zone ─────────────────────────────────────────────────── */
 .dropzone {
   border: 2px dashed var(--color-border);
   border-radius: 8px;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color var(--duration-base) var(--ease-out),
+              background-color var(--duration-base) var(--ease-out);
   cursor: pointer;
 }
 
@@ -713,7 +806,7 @@ body {
   padding: 1.25rem;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.2s ease;
+  transition: border-color var(--duration-base) var(--ease-out);
 }
 
 .metric-card::after {
@@ -725,6 +818,7 @@ body {
   height: 2px;
   background: var(--color-gold);
   opacity: 0.5;
+  transition: opacity var(--duration-base) var(--ease-out);
 }
 
 .metric-card:hover {
@@ -779,4 +873,30 @@ body {
 }
 .workflow-canvas .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--color-gold) !important;
+}
+
+/* ─── Reduced Motion (WCAG 2.3.3) ────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .status-dot.active,
+  .log-step.running::before,
+  .progress-step-circle.running,
+  .kill-switch-active,
+  .skeleton {
+    animation: none !important;
+  }
+
+  .btn-primary:active,
+  .btn-secondary:active,
+  .btn-danger:active {
+    transform: none;
+  }
 }
