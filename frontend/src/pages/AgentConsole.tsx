@@ -840,7 +840,11 @@ export default function AgentConsole() {
         },
       },
     )
-  }, [isRunning, activeThreadId, createThread, addMessageToThread, updateMessageInThread, selectedServerInfo, toast])
+  }, [
+    isRunning, activeThreadId, createThread,
+    addMessageToThread, updateMessageInThread, getActiveThread,
+    selectedServerInfo, globalPrompt, sessionPrompt, toast,
+  ])
 
   const handleSelectOption = useCallback((value: string, displayLabel: string) => {
     sendMessage(value, displayLabel)

@@ -192,11 +192,12 @@ function GraphSearchField({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // value로부터 초기 선택 상태 복원
+  // value 가 바뀔 때만 초기 복원 — selectedEntity 는 읽기 전용 가드
   useEffect(() => {
     if (value && !selectedEntity) {
       setQuery(value)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   function handleSearch(q: string) {
@@ -636,6 +637,8 @@ export default function WorkflowEditor() {
       })
       addSkillNode(skill, position)
     },
+    // addSkillNode는 매 렌더마다 재생성되는 일반 함수라 deps로 넣으면 onDrop이 매번 새로 만들어져 memo 효과 상실. 드롭 시점의 최신 nodes.length는 addSkillNode 안의 setNodes(updater)로 안전하게 읽음
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [reactFlowInstance, skills],
   )
 

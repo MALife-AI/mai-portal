@@ -129,7 +129,7 @@ function OverviewTab() {
         <div className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">컴플라이언스 체크리스트</p>
           <div className="grid grid-cols-2 gap-2">
-            {governance.checklist.map((c: any) => (
+            {governance.checklist.map((c) => (
               <div key={c.item} className="flex items-center gap-2 text-xs">
                 {c.status ? <CheckCircle2 size={12} className="text-status-success" /> : <XCircle size={12} className="text-status-error" />}
                 <span className="text-surface-800">{c.item}</span>
@@ -300,7 +300,7 @@ function IamTab() {
               <div key={category} className="panel p-4">
                 <p className="text-xs font-semibold text-surface-800 mb-3">{category}</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {perms.map((p: any) => (
+                  {perms.map((p) => (
                     <label key={p.id} className="flex items-start gap-2 cursor-pointer group">
                       <input
                         type="checkbox"
@@ -418,7 +418,7 @@ function ModelTab() {
         <div className="panel p-4 space-y-3">
           <p className="text-xs text-surface-600">에이전트가 기본으로 사용할 GPU 서버를 선택하세요.</p>
           <div className="space-y-2">
-            {gpuServers.map((srv: any) => (
+            {gpuServers.map((srv) => (
               <label
                 key={srv.id}
                 className={cn(
@@ -519,7 +519,7 @@ function ModelTab() {
       <div>
         <p className="text-sm font-semibold text-surface-900 mb-3">GPU 추론 서버</p>
         <div className="space-y-2 mb-4">
-          {gpuServers.map((srv: any) => (
+          {gpuServers.map((srv) => (
             <div key={srv.id} className="panel p-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Server size={14} className="text-gold-500 shrink-0" />
@@ -641,7 +641,7 @@ function MetricsTab() {
           {userData.map(d => (
             <div key={d.user} className="flex items-center justify-between py-1 text-xs">
               <span className="font-mono text-surface-800">{d.user}</span>
-              <span className="font-mono text-surface-600">{d.count as any}</span>
+              <span className="font-mono text-surface-600">{d.count}</span>
             </div>
           ))}
         </div>
@@ -650,7 +650,7 @@ function MetricsTab() {
           {skillData.slice(0, 8).map(d => (
             <div key={d.skill} className="flex items-center justify-between py-1 text-xs">
               <span className="font-mono text-surface-800 truncate">{d.skill}</span>
-              <span className="font-mono text-surface-600">{d.count as any}</span>
+              <span className="font-mono text-surface-600">{d.count}</span>
             </div>
           ))}
         </div>
@@ -661,8 +661,15 @@ function MetricsTab() {
 
 // ─── API Keys ───────────────────────────────────────────────────────────────
 
+interface ApiKey {
+  key: string
+  label: string
+  user_id: string
+  created_at?: string
+}
+
 function ApiKeysTab() {
-  const [keys, setKeys] = useState<any[]>([])
+  const [keys, setKeys] = useState<ApiKey[]>([])
   const [newLabel, setNewLabel] = useState('')
   const [newUserId, setNewUserId] = useState('')
   const [createdKey, setCreatedKey] = useState<string | null>(null)
@@ -671,7 +678,7 @@ function ApiKeysTab() {
   useEffect(() => { api('/api/v1/admin/api-keys').then(d => setKeys(d.keys || [])) }, [])
 
   async function createKey() {
-    const body: any = { label: newLabel || 'default' }
+    const body: { label: string; user_id?: string } = { label: newLabel || 'default' }
     if (newUserId) body.user_id = newUserId
     const res = await api('/api/v1/admin/api-keys', { method: 'POST', body: JSON.stringify(body) })
     if (res.api_key) {
@@ -749,7 +756,7 @@ function ApiKeysTab() {
           <p className="text-xs text-surface-600 text-center py-4">발급된 API 키가 없습니다</p>
         ) : (
           <div className="space-y-2">
-            {keys.map((k: any, i: number) => (
+            {keys.map((k, i) => (
               <div key={i} className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <div className="flex items-center gap-3">
                   <KeyRound size={13} className="text-gold-500" />
@@ -761,7 +768,7 @@ function ApiKeysTab() {
                     <p className="text-2xs text-surface-600">사용자: {k.user_id} · 생성: {k.created_at?.split('T')[0]}</p>
                   </div>
                 </div>
-                <button onClick={() => revokeKey(k.key.split('...')[0])}
+                <button onClick={() => revokeKey(k.key.split('...')[0] ?? k.key)}
                   className="text-surface-600 hover:text-status-error"><Trash2 size={13} /></button>
               </div>
             ))}
@@ -774,11 +781,20 @@ function ApiKeysTab() {
 
 // ─── Guardrails ─────────────────────────────────────────────────────────────
 
+interface GuardrailTestResult {
+  blocked: boolean
+  risk_score: number
+  threshold: number
+  text_length: number
+  injection_detected?: boolean
+  matched_blocked_topics?: string[]
+}
+
 function GuardrailsTab() {
   const [config, setConfig] = useState<GuardrailConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [testText, setTestText] = useState('')
-  const [testResult, setTestResult] = useState<any>(null)
+  const [testResult, setTestResult] = useState<GuardrailTestResult | null>(null)
   const [newTopic, setNewTopic] = useState('')
   // 에이전트 UI 설정
   const [agentUi, setAgentUi] = useState<{ suggestions: string[]; welcome_title: string; welcome_subtitle: string }>({
@@ -818,10 +834,11 @@ function GuardrailsTab() {
 
   if (!config) return <div className="flex justify-center py-12"><Loader2 className="animate-spin text-surface-600" /></div>
 
-  const update = (section: keyof GuardrailConfig, key: string, value: any) => {
+  const update = (section: keyof GuardrailConfig, key: string, value: unknown) => {
     setConfig(prev => {
       if (!prev) return prev
-      return { ...prev, [section]: { ...(prev[section] as any), [key]: value } }
+      const sectionValue = prev[section] as Record<string, unknown>
+      return { ...prev, [section]: { ...sectionValue, [key]: value } }
     })
   }
 
@@ -928,7 +945,7 @@ function GuardrailsTab() {
             ['block_external_urls', '외부 URL 차단'],
           ] as const).map(([key, label]) => (
             <label key={key} className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={(config.output_guardrails as any)[key]}
+              <input type="checkbox" checked={Boolean((config.output_guardrails as unknown as Record<string, boolean>)[key])}
                 onChange={e => update('output_guardrails', key, e.target.checked)}
                 className="accent-gold-500" />
               <span className="text-xs text-surface-700">{label}</span>
@@ -1024,8 +1041,8 @@ function GuardrailsTab() {
             <div className="text-surface-700">위험도 점수: <span className="font-mono">{testResult.risk_score.toFixed(4)}</span> / 임계값: {testResult.threshold}</div>
             <div className="text-surface-700">텍스트 길이: {testResult.text_length}자</div>
             {testResult.injection_detected && <div className="text-status-error">프롬프트 인젝션 패턴 감지됨</div>}
-            {testResult.matched_blocked_topics?.length > 0 && (
-              <div className="text-status-warning">차단 주제 매칭: {testResult.matched_blocked_topics.join(', ')}</div>
+            {(testResult.matched_blocked_topics?.length ?? 0) > 0 && (
+              <div className="text-status-warning">차단 주제 매칭: {testResult.matched_blocked_topics!.join(', ')}</div>
             )}
           </div>
         )}
@@ -1102,7 +1119,7 @@ function GovernanceTab() {
       <div className="panel p-4">
         <p className="text-sm font-semibold text-surface-800 mb-3">보안 컴플라이언스 체크리스트</p>
         <div className="space-y-2">
-          {data.checklist?.map((c: any) => (
+          {data.checklist?.map((c) => (
             <div key={c.item} className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
               {c.status ? (
                 <CheckCircle2 size={16} className="text-status-success shrink-0" />
@@ -1125,7 +1142,7 @@ function GovernanceTab() {
       {(data.recent_violations?.length ?? 0) > 0 && (
         <div className="panel p-4">
           <p className="text-xs font-semibold text-surface-800 mb-3">최근 권한 위반</p>
-          {data.recent_violations!.map((v: any, i: number) => (
+          {data.recent_violations!.map((v, i) => (
             <div key={i} className="text-xs py-1.5 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-border)' }}>
               <AlertTriangle size={11} className="text-status-error shrink-0" />
               <span className="font-mono text-surface-600">{v.user_id}</span>
@@ -1145,14 +1162,16 @@ function GovernanceTab() {
   )
 }
 
+interface SecurityGradeStats { total: number; grades: Record<number, number> }
+
 function SecurityGradePanel() {
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats] = useState<SecurityGradeStats | null>(null)
 
   useEffect(() => {
     // 그래프에서 보안등급 분포 조회
     fetch('/api/v1/graph/visualization', { headers: { 'X-User-Id': getUserId() } })
       .then(r => r.json())
-      .then(d => {
+      .then((d: { nodes?: Array<{ security_grade?: number; properties?: { security_grade?: number } }> }) => {
         const nodes = d.nodes || []
         const grades: Record<number, number> = { 1: 0, 2: 0, 3: 0 }
         for (const n of nodes) {
@@ -1203,8 +1222,16 @@ function SecurityGradePanel() {
   )
 }
 
+interface AuditLog {
+  timestamp?: string
+  user_id: string
+  query?: string
+  referenced_sources?: Array<{ security_grade?: number }>
+  max_security_grade?: number
+}
+
 function AuditLogPanel() {
-  const [logs, setLogs] = useState<any[]>([])
+  const [logs, setLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
@@ -1246,21 +1273,25 @@ function AuditLogPanel() {
               <span className="font-semibold text-surface-800 shrink-0 w-16">{log.user_id}</span>
               <span className="text-surface-700 flex-1 truncate">{log.query}</span>
               <div className="flex gap-1 shrink-0">
-                {log.referenced_sources?.map((s: any, j: number) => (
-                  <span
-                    key={j}
-                    className="px-1 py-0.5 rounded font-mono"
-                    style={{
-                      fontSize: '9px',
-                      background: (gradeColors[s.security_grade] || '#34C759') + '20',
-                      color: gradeColors[s.security_grade] || '#34C759',
-                    }}
-                  >
-                    G{s.security_grade || 1}
-                  </span>
-                ))}
+                {log.referenced_sources?.map((s, j) => {
+                  const grade = s.security_grade ?? 1
+                  const color = gradeColors[grade] || '#34C759'
+                  return (
+                    <span
+                      key={j}
+                      className="px-1 py-0.5 rounded font-mono"
+                      style={{
+                        fontSize: '9px',
+                        background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                        color,
+                      }}
+                    >
+                      G{grade}
+                    </span>
+                  )
+                })}
               </div>
-              {log.max_security_grade >= 3 && (
+              {(log.max_security_grade ?? 0) >= 3 && (
                 <AlertTriangle size={11} className="text-status-error shrink-0" />
               )}
             </div>
@@ -1303,7 +1334,7 @@ function DepartmentsTab() {
     setFormDesc('')
   }
 
-  function startEdit(dept: any) {
+  function startEdit(dept: { id: string; name: string; description: string }) {
     setIsNew(false)
     setEditId(dept.id)
     setFormId(dept.id)
@@ -1608,7 +1639,7 @@ function InfraTab() {
   const [newHost, setNewHost] = useState({ name: '', address: '', description: '' })
   const [statusLoading, setStatusLoading] = useState(false)
 
-  // Load hosts on mount
+  // Load hosts on mount — selectedHost는 이 effect 내부에서만 초기값 설정용으로 읽음
   useEffect(() => {
     api('/api/v1/admin/hosts')
       .then(d => {
@@ -1617,6 +1648,7 @@ function InfraTab() {
         if (list.length > 0 && !selectedHost) setSelectedHost(list[0]!.id)
       })
       .catch(() => setHosts([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Load status + machines when host changes
@@ -1921,7 +1953,7 @@ function SharedDocsTab() {
     const relativePaths: string[] = []
     for (let i = 0; i < fileList.length; i++) {
       const f = fileList[i]!
-      const path = (f as any).webkitRelativePath || f.name
+      const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
       const parts = path.split('/')
       if (parts.some((p: string) => p.startsWith('.') || p.startsWith('__'))) continue
       files.push(f)
@@ -2105,7 +2137,7 @@ function SharedDocsTab() {
             className="hidden"
             onChange={handleFolderUpload}
             disabled={uploading}
-            {...{ webkitdirectory: '', directory: '' } as any}
+            {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
           />
         </div>
         <p className="text-2xs text-surface-600 mb-3">
