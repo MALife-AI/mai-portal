@@ -10,14 +10,16 @@ export default defineConfig({
     },
   },
   server: {
-    port: 9000,
+    host: true, // 0.0.0.0 — WSL/외부 네트워크에서 접속 가능
+    port: 5173,
+    strictPort: false,
     proxy: {
       '/api': {
-        target: 'http://175.117.225.76:9001',
+        target: 'http://localhost:9001',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://175.117.225.76:9001',
+        target: 'http://localhost:9001',
         changeOrigin: true,
       },
     },

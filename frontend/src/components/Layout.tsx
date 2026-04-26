@@ -137,12 +137,15 @@ export function Layout() {
       </AnimatePresence>
 
       {/* Sidebar — 데스크탑: 항상 표시, 모바일: 슬라이드 오버레이 */}
+      {/*
+        inline style 은 Tailwind의 md:translate-x-0 보다 우선하므로
+        모바일에서만 translateX 가 걸리도록 class 기반으로 처리.
+      */}
       <div
-        className="fixed inset-y-0 left-0 z-50 md:relative md:translate-x-0 md:z-auto"
-        style={{
-          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
-        }}
+        className={`fixed inset-y-0 left-0 z-50 md:relative md:z-auto md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        style={{ transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)' }}
       >
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>

@@ -880,14 +880,16 @@ export default function AgentConsole() {
       )}
 
       {/* Thread list */}
+      {/* inline transform 은 md:translate-x-0 를 덮어쓰므로 class 기반 처리 */}
       <aside
         id="agent-thread-list"
-        className="flex flex-col shrink-0 fixed inset-y-0 left-0 z-50 md:static md:z-auto md:translate-x-0"
+        className={`flex flex-col shrink-0 fixed inset-y-0 left-0 z-50 md:static md:z-auto md:translate-x-0 ${
+          showMobileThreads ? 'translate-x-0' : '-translate-x-full'
+        }`}
         style={{
           width: '220px',
           borderRight: '1px solid var(--color-border)',
           background: 'var(--color-bg-secondary)',
-          transform: showMobileThreads ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
         }}
         aria-label="대화 목록"
